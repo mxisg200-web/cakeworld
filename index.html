@@ -232,6 +232,9 @@ textarea{font-size:15px}
 @media print{#chat-root,#board-root{display:none!important}}
 .bth{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:11px 12px;background:#fff;border:1px solid var(--line);border-radius:12px;margin:6px 0;cursor:pointer}.bth small{display:block;color:var(--mut);font-size:12.5px;font-weight:400;max-width:230px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bgrp{font-weight:700;margin:14px 2px 2px;display:flex;justify-content:space-between;align-items:center;gap:8px}
+.al{display:flex;justify-content:space-between;gap:8px;align-items:flex-start;padding:8px 10px;margin:4px 0;background:#fff;border:1px solid var(--line);border-radius:10px;font-size:14px;line-height:1.45}.al.bad{border-color:#E7B4AE;background:#FFF5F3}.al.warn{border-color:#EBD89A;background:#FFFBEA}
+.spk{border:0;background:#F3E6E8;border-radius:999px;width:34px;height:34px;flex:none;font-size:16px;padding:0}
+.ar{background:#fff;border:1px solid var(--line);border-radius:12px;padding:9px 10px;margin:8px 0}.ar.bad{border-left:5px solid #C0392B}.ar.warn{border-left:5px solid #E0A800}.ar.ok{border-left:5px solid #2E8B57}.ar .nums{display:flex;flex-wrap:wrap;gap:2px 12px;font-size:13px;color:var(--mut);margin:3px 0}.ar .al{border:0;padding:4px 0;margin:0;background:transparent}
 .bfeed{background:#fff;border:1px solid var(--line);border-radius:12px;padding:9px 12px;margin:10px 0;font-size:13.5px;line-height:1.5}.bfeed b{display:block;margin-bottom:2px}.bfeed .muted{margin-top:3px}
 .bnm{padding:10px 12px;background:#FFF8E1;border-top:1px solid var(--line)}.bnm input{width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:12px;font-size:16px;margin:6px 0}
 @media print{header,nav,.bar,.noprint,#toast,#sheet-root{display:none!important}body{background:#fff}#app{padding:0;max-width:none;min-height:0}main{padding:0}body.printing .psheet:not(.printing){display:none!important}.psheet{border:0;border-radius:0;padding:0;margin:0}}
@@ -241,7 +244,7 @@ header .role{max-width:60vw}
 </head>
 <body>
 <div id="app"></div>
-<div id="sheet-root"></div><div id="chat-root"></div><div id="board-root"></div>
+<div id="sheet-root"></div><div id="chat-root"></div><div id="board-root"></div><div id="ana-root"></div>
 <div id="toast"></div>
 
 <script id="logic">
@@ -1225,6 +1228,186 @@ const Logic = (function () {
     const n = normName(person), s = {}; msgs.forEach(m => { if (!m.fromMaster && m.loginId === loginId && normName(m.person) === n && m.device) s[m.device] = 1; }); return Object.keys(s).length;
   }
   // threads for the Master / HR list: for each login "Everyone" + every person who has written
+  // ---- ERP reports: Sales Product Wise + Purchase Report (read from Excel), matched with the app's production ----
+  const BRANCH_SHOP = { B5: 'YMR', B6: 'NDD', B8: 'Varkala' };
+  const MON3 = { jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6, jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12 };
+  function erpText(v) { return String(v == null ? '' : v).trim(); }
+  function erpNum(v) { if (typeof v === 'number') return isFinite(v) ? v : NaN; const s = erpText(v).replace(/,/g, '').replace(/%$/, ''); if (s === '' || !/^-?\d*\.?\d+$/.test(s)) return NaN; return parseFloat(s); }
+  function erpDate(v) {
+    if (v == null || v === '') return '';
+    if (typeof v === 'number') { if (v > 30000 && v < 80000) { const d = new Date(Date.UTC(1899, 11, 30) + Math.round(v) * 86400000); return d.getUTCFullYear() + '-' + pad(d.getUTCMonth() + 1) + '-' + pad(d.getUTCDate()); } return ''; }
+    const s = erpText(v); let m = s.match(/^(\d{1,2})[-\/.](\d{1,2})[-\/.](\d{4})$/); if (m) return m[3] + '-' + pad(+m[2]) + '-' + pad(+m[1]);
+    m = s.match(/^(\d{1,2})[-\/ ]([A-Za-z]{3})[A-Za-z]*[-\/ ,]*(\d{4})$/); if (m && MON3[m[2].toLowerCase()]) return m[3] + '-' + pad(MON3[m[2].toLowerCase()]) + '-' + pad(+m[1]);
+    m = s.match(/^(\d{4})-(\d{2})-(\d{2})/); if (m) return m[1] + '-' + m[2] + '-' + m[3];
+    return '';
+  }
+  function erpHeadText(rows) { return rows.slice(0, 8).map(r => (r || []).map(erpText).join(' ')).join(' | '); }
+  function erpPeriod(rows) { const m = erpHeadText(rows).match(/Period:\s*(\S+)\s*to\s*(\S+)/i); return m ? { from: erpDate(m[1]), to: erpDate(m[2]) } : { from: '', to: '' }; }
+  function erpBranch(rows) { const m = erpHeadText(rows).match(/\b(B\d{1,2})\b/); return m ? m[1] : ''; }
+  function parseSalesRows(rows) {
+    let hi = -1;
+    for (let i = 0; i < Math.min(rows.length, 30); i++) { const r = (rows[i] || []).map(x => erpText(x).toLowerCase()); if (r.indexOf('item') >= 0 && r.some(c => c.indexOf('sales q') === 0)) { hi = i; break; } }
+    if (hi < 0) return null;
+    const head = rows[hi].map(x => erpText(x).toLowerCase()), col = f => head.findIndex(f);
+    const cItem = col(c => c === 'item'), cCode = col(c => c === 'code'), cGrp = col(c => c.indexOf('item group') === 0), cUnit = col(c => c === 'unit'), cQty = col(c => c.indexOf('sales q') === 0), cDmg = col(c => c.indexOf('dmg') === 0 || c.indexOf('damage') === 0);
+    let cRate = col(c => c === 'sale rate'); const cNet = col(c => c.indexOf('sale rate (') === 0), cTot = col(c => c === 'total'), cGross = col(c => c.indexOf('gross') === 0);
+    if (cRate < 0) cRate = cNet;
+    const items = [];
+    for (let i = hi + 1; i < rows.length; i++) {
+      const r = rows[i] || [], name = erpText(r[cItem]), qty = erpNum(r[cQty]);
+      if (!name || isNaN(qty) || /^total/i.test(name)) continue;
+      const dmg = cDmg >= 0 ? erpNum(r[cDmg]) : 0, rate = cRate >= 0 ? erpNum(r[cRate]) : NaN, tot = cTot >= 0 ? erpNum(r[cTot]) : NaN, gross = cGross >= 0 ? erpNum(r[cGross]) : NaN;
+      items.push({ code: cCode >= 0 ? erpText(r[cCode]) : '', name: name, group: cGrp >= 0 ? erpText(r[cGrp]) : '', unit: cUnit >= 0 ? erpText(r[cUnit]) : '', qty: qty, dmg: isNaN(dmg) ? 0 : dmg, rate: isNaN(rate) ? 0 : rate, amt: !isNaN(tot) ? tot : (!isNaN(gross) ? gross : 0) });
+    }
+    if (!items.length) return null;
+    const p = erpPeriod(rows), b = erpBranch(rows);
+    return { kind: 'sales', branch: b, shop: BRANCH_SHOP[b] || '', from: p.from, to: p.to, items: items };
+  }
+  function parsePurchaseRows(rows) {
+    let dc = null, ic = null, itemMode = false, cur = null; const days = [];
+    for (let i = 0; i < rows.length; i++) {
+      const r = rows[i] || [], low = r.map(x => erpText(x).toLowerCase());
+      if (low.some(c => c.indexOf('consumption') === 0) && low.some(c => c === 'production' || c.indexOf('production') === 0)) {
+        dc = { date: low.findIndex(c => c === 'date'), section: low.findIndex(c => c === 'section'), batch: low.findIndex(c => c === 'batch'), good: low.findIndex(c => c.indexOf('good') === 0), cons: low.findIndex(c => c.indexOf('consumption') === 0), prod: low.findIndex(c => c === 'production'), profit: low.findIndex(c => c.indexOf('profit') === 0) };
+        if (dc.prod < 0) dc.prod = low.findIndex(c => c.indexOf('production') === 0); continue;
+      }
+      if (low.indexOf('code') >= 0 && low.indexOf('item') >= 0 && low.indexOf('qty') >= 0) { ic = { code: low.indexOf('code'), item: low.indexOf('item'), qty: low.indexOf('qty'), rate: low.indexOf('rate'), amt: low.findIndex(c => c === 'amt' || c.indexOf('amount') === 0) }; itemMode = true; continue; }
+      if (!dc) continue;
+      if (low.some(c => c.indexOf('sum=') === 0)) { itemMode = false; continue; }
+      const dt = erpDate(r[dc.date]), cons = erpNum(r[dc.cons]), prod = erpNum(r[dc.prod]);
+      if (dt && !isNaN(cons) && !isNaN(prod) && erpText(r[dc.section])) {
+        itemMode = false; const good = dc.good >= 0 ? erpNum(r[dc.good]) : NaN;
+        cur = { date: dt, section: erpText(r[dc.section]), batch: dc.batch >= 0 ? erpText(r[dc.batch]) : '', good: isNaN(good) ? 0 : good, cons: cons, prod: prod, items: [] }; days.push(cur); continue;
+      }
+      if (itemMode && ic && cur) {
+        const name = erpText(r[ic.item]), qty = erpNum(r[ic.qty]), amt = ic.amt >= 0 ? erpNum(r[ic.amt]) : NaN;
+        if (name && !isNaN(qty)) cur.items.push({ code: erpText(r[ic.code]), name: name, qty: qty, rate: ic.rate >= 0 && !isNaN(erpNum(r[ic.rate])) ? erpNum(r[ic.rate]) : 0, amt: isNaN(amt) ? 0 : amt });
+      }
+    }
+    if (!days.length) return null;
+    const p = erpPeriod(rows); let b = erpBranch(rows); if (!b) { const bm = days.map(d => d.batch).join(' ').match(/\/(B\d{1,2})\//); b = bm ? bm[1] : ''; }
+    const ds = days.map(d => d.date).sort();
+    return { kind: 'purchase', branch: b, shop: BRANCH_SHOP[b] || '', from: p.from || ds[0], to: p.to || ds[ds.length - 1], days: days };
+  }
+  function parseErpSheets(sheets) { for (const sh of sheets) { const rows = sh.rows || sh; const a = parseSalesRows(rows) || parsePurchaseRows(rows); if (a) return a; } return null; }
+  // ---- matching ERP item names with the menu ----
+  const ALIAS = { choco: 'chocolate', chocolat: 'chocolate', vanilla: 'vanila', vanilha: 'vanila', fruits: 'fruit', cakes: 'cake' };
+  function erpTokens(s) {
+    return String(s).toLowerCase().replace(/&/g, ' ').replace(/(\d+(?:\.\d+)?)\s*(kg|kilo|gm|gms|g|gram)\b/g, ' ').replace(/[^a-z\s]/g, ' ').split(/\s+/).map(x => ALIAS[x] || x).filter(x => x && x !== 'cake' && x !== 'kg' && x !== 'gm' && x !== 'half' && x !== 'the' && x !== 'of');
+  }
+  const NOT_CAKE = /pastr|jar\b|hand|muffin|cup|cookie|brownie|puff|cutlet|roll|sickle|snack|candle|topper|sprink|sponge/i;
+  function erpSlot(name, rate, price) {
+    const n = String(name).toLowerCase();
+    if (/\b(500|450|250)\s*(gm|gms|g|gram)\b/.test(n) || /\bhalf\b/.test(n) || /\b0?\.5\s*kg\b/.test(n)) return '500 gm';
+    if (/\b1\s*(kg|kilo)\b/.test(n) || /\b1000\s*(gm|g)\b/.test(n)) return '1 Kg';
+    if (price && rate) { if (Math.abs(rate - price[0]) <= 2) return '1 Kg'; if (Math.abs(rate - price[1]) <= 2) return '500 gm'; }
+    return '';
+  }
+  function matchErpItem(it) {
+    if (NOT_CAKE.test(it.name) || NOT_CAKE.test(it.group || '')) return null;
+    const et = erpTokens(it.name), eset = new Set(et), ec = et.join(''); let best = null, bl = 0;
+    MENU.forEach(g => g.items.forEach(m => { const mt = erpTokens(m[0]), mc = mt.join(''); if (mc && (mt.every(t => eset.has(t)) || ec.indexOf(mc) >= 0) && mc.length > bl) { best = m; bl = mc.length; } }));
+    if (!best) return null;
+    const slot = erpSlot(it.name, it.rate, [best[1], best[2]]); if (!slot) return null;
+    return { cake: best[0], slot: slot };
+  }
+  function kgOfSize(s) { return s === '500 gm' ? 0.5 : 1; }
+  const r1 = n => Math.round(n * 100) / 100;
+  // made (app) vs sold (ERP) for one shop and period
+  function compareSales(s, rep) {
+    const shop = rep.shop, from = rep.from, to = rep.to, made = {}, dmg = {}, otherMade = {}, usedOther = {}, rows = {}, unmatched = [];
+    const key = (c, sl) => c + '|' + sl;
+    s.production.forEach(e => {
+      if (e.shop !== shop || e.date < from || e.date > to) return;
+      if (e.other) { const k = erpTokens(e.item).join(' '); if (k) { (otherMade[k] = otherMade[k] || { name: e.item, qty: 0 }).qty += e.qty; } return; }
+      if (e.model) { const k = key(e.flavor || e.cake || e.item, '1 Kg'); made[k] = (made[k] || 0) + e.qty * (e.weight || 1); return; }
+      if (e.cake && e.size) { const k = key(e.cake, e.size); made[k] = (made[k] || 0) + e.qty; }
+    });
+    s.closing.forEach(e => {
+      if (!e.damage || e.shop !== shop || e.date < from || e.date > to || e.other) return;
+      if (e.model) { const k = key(e.cake || e.item, '1 Kg'); dmg[k] = (dmg[k] || 0) + e.qty * (e.weight || 1); return; }
+      if (e.cake && e.size) { const k = key(e.cake, e.size); dmg[k] = (dmg[k] || 0) + e.qty; }
+    });
+    const row = (c, sl) => rows[key(c, sl)] || (rows[key(c, sl)] = { cake: c, slot: sl, made: made[key(c, sl)] || 0, sold: 0, erpDmg: 0, appDmg: dmg[key(c, sl)] || 0, amt: 0, kg: sl === '1 Kg' });
+    rep.items.forEach(it => {
+      const m = matchErpItem(it);
+      if (m) { const r = row(m.cake, m.slot); r.sold += it.qty; r.erpDmg += it.dmg || 0; r.amt += it.amt || 0; return; }
+      const ok = erpTokens(it.name).join(' ');
+      if (ok && (otherMade[ok] || rows['o|' + ok])) {
+        const om = otherMade[ok] || { name: it.name, qty: rows['o|' + ok].made };
+        const r = rows['o|' + ok] || (rows['o|' + ok] = { cake: om.name, slot: '', made: om.qty, sold: 0, erpDmg: 0, appDmg: 0, amt: 0, kg: false, other: true });
+        r.sold += it.qty; r.erpDmg += it.dmg || 0; r.amt += it.amt || 0; usedOther[ok] = 1; return;
+      }
+      unmatched.push(it);
+    });
+    Object.keys(made).forEach(k => { if (!rows[k]) { const p = k.split('|'); row(p[0], p[1]); } });
+    Object.keys(dmg).forEach(k => { if (!rows[k]) { const p = k.split('|'); row(p[0], p[1]); } });
+    const list = Object.keys(rows).map(k => rows[k]).map(r => {
+      r.left = r1(r.made - r.sold - r.appDmg);
+      r.status = r.made > 0 && r.sold === 0 ? 'nosale' : r.sold > 0 && r.made === 0 ? 'nomade' : r.left < 0 ? 'over' : 'ok';
+      return r;
+    });
+    const rank = { over: 0, nomade: 1, nosale: 2, ok: 3 };
+    list.sort((a, b) => rank[a.status] - rank[b.status] || (a.cake < b.cake ? -1 : 1));
+    const unmadeOther = Object.keys(otherMade).filter(k => !usedOther[k]).map(k => otherMade[k]);
+    return { rows: list, unmatched: unmatched, otherNotSold: unmadeOther, soldAmt: list.reduce((a, r) => a + r.amt, 0) };
+  }
+  function salesLine(r) {
+    const nm = r.cake + (r.slot ? ' ' + r.slot : ''), u = r.kg ? ' kg' : '';
+    const base = nm + ': made ' + r1(r.made) + u + ', sold ' + r1(r.sold) + u + (r.appDmg ? ', damaged ' + r1(r.appDmg) + u : '');
+    if (r.status === 'over') return base + '. Sold ' + r1(-r.left) + u + ' more than was made. Either the production was not entered, or it came from old stock. Please check.';
+    if (r.status === 'nomade') return base + '. Sold but no production entered for it. Please check.';
+    if (r.status === 'nosale') return base + '. Nothing sold in the report. About ' + r1(r.left) + u + ' should be at the counter or wasted.';
+    return base + '. About ' + r1(r.left) + u + ' should be at the counter' + (r.left === 0 ? ' (none left).' : '.');
+  }
+  function purchaseSummary(rep, limit) {
+    const lim = limit > 0 ? limit : 30;
+    const days = rep.days.map(d => { const pct = d.prod > 0 ? d.cons / d.prod * 100 : 0; return { date: d.date, section: d.section, cons: d.cons, prod: d.prod, pct: Math.round(pct * 10) / 10, profit: Math.round(d.prod - d.cons), good: d.good, high: pct > lim, items: d.items }; });
+    const tc = days.reduce((a, d) => a + d.cons, 0), tp = days.reduce((a, d) => a + d.prod, 0), by = {};
+    days.forEach(d => d.items.forEach(i => { (by[i.name] = by[i.name] || { name: i.name, qty: 0, amt: 0 }); by[i.name].qty += i.qty; by[i.name].amt += i.amt; }));
+    const top = Object.keys(by).map(k => by[k]).sort((a, b) => b.amt - a.amt).slice(0, 10);
+    return { days: days, limit: lim, cons: tc, prod: tp, pct: tp > 0 ? Math.round(tc / tp * 1000) / 10 : 0, profit: Math.round(tp - tc), high: days.filter(d => d.high), top: top };
+  }
+  const inr = n => '₹' + Math.round(n).toLocaleString('en-IN');
+  function fmtDay(d) { const p = d.split('-'); return Number(p[2]) + ' ' + ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][Number(p[1]) - 1]; }
+  // ---- read an .xlsx file (zip + xml) with the phone's own tools; nothing is uploaded anywhere ----
+  const xmlDec = s => String(s).replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&#(\d+);/g, (m, n) => String.fromCharCode(+n)).replace(/&#x([0-9a-f]+);/gi, (m, n) => String.fromCharCode(parseInt(n, 16))).replace(/&amp;/g, '&');
+  async function inflateRaw(u8) { const st = new Blob([u8]).stream().pipeThrough(new DecompressionStream('deflate-raw')); return new Uint8Array(await new Response(st).arrayBuffer()); }
+  async function unzip(buf) {
+    const u8 = new Uint8Array(buf), dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength); let e = u8.length - 22;
+    while (e >= 0 && dv.getUint32(e, true) !== 0x06054b50) e--;
+    if (e < 0) throw new Error('This is not an Excel (.xlsx) file');
+    const n = dv.getUint16(e + 10, true); let p = dv.getUint32(e + 16, true); const out = {}, td = new TextDecoder();
+    for (let i = 0; i < n; i++) {
+      if (dv.getUint32(p, true) !== 0x02014b50) break;
+      const method = dv.getUint16(p + 10, true), csize = dv.getUint32(p + 20, true), nl = dv.getUint16(p + 28, true), xl = dv.getUint16(p + 30, true), cl = dv.getUint16(p + 32, true), lo = dv.getUint32(p + 42, true);
+      const name = td.decode(u8.subarray(p + 46, p + 46 + nl)); p += 46 + nl + xl + cl;
+      if (!/^xl\/(worksheets\/sheet\d+\.xml|sharedStrings\.xml)$/.test(name)) continue;
+      const ls = lo + 30 + dv.getUint16(lo + 26, true) + dv.getUint16(lo + 28, true), raw = u8.subarray(ls, ls + csize);
+      out[name] = td.decode(method === 8 ? await inflateRaw(raw) : raw);
+    }
+    return out;
+  }
+  function colIdx(ref) { const m = /^([A-Z]+)/.exec(ref); let n = 0; if (!m) return 0; for (const ch of m[1]) n = n * 26 + ch.charCodeAt(0) - 64; return n - 1; }
+  async function readXlsx(buf) {
+    const files = await unzip(buf), ss = [];
+    if (files['xl/sharedStrings.xml']) { const re = /<si\b[^>]*>([\s\S]*?)<\/si>/g; let m; while ((m = re.exec(files['xl/sharedStrings.xml']))) { let t = '', tm; const tr = /<t\b[^>]*>([\s\S]*?)<\/t>/g; while ((tm = tr.exec(m[1]))) t += tm[1]; ss.push(xmlDec(t)); } }
+    const names = Object.keys(files).filter(k => /worksheets\/sheet\d+\.xml$/.test(k)).sort((a, b) => parseInt(a.replace(/\D+/g, '')) - parseInt(b.replace(/\D+/g, '')));
+    return names.map(nm => {
+      const rows = [], rr = /<row\b[^>]*?(?:\br="(\d+)")?[^>]*>([\s\S]*?)<\/row>/g; let m, auto = 0;
+      while ((m = rr.exec(files[nm]))) {
+        const ri = (m[1] ? +m[1] : ++auto) - 1, arr = rows[ri] = rows[ri] || [], cr = /<c\b([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g; let c;
+        while ((c = cr.exec(m[2]))) {
+          const at = c[1], ref = (/\br="([A-Z]+\d+)"/.exec(at) || [])[1], t = (/\bt="(\w+)"/.exec(at) || [])[1], body = c[2] || '';
+          const v = (/<v>([\s\S]*?)<\/v>/.exec(body) || [])[1]; let val = '';
+          if (t === 'inlineStr') { let tx = '', tm; const tr = /<t\b[^>]*>([\s\S]*?)<\/t>/g; while ((tm = tr.exec(body))) tx += tm[1]; val = xmlDec(tx); }
+          else if (v === undefined) val = ''; else if (t === 's') val = ss[+v] == null ? '' : ss[+v]; else if (t === 'str' || t === 'e') val = xmlDec(v); else if (t === 'b') val = v === '1' ? 'TRUE' : 'FALSE'; else { const nn = Number(v); val = isNaN(nn) ? xmlDec(v) : nn; }
+          if (ref) arr[colIdx(ref)] = val; else arr.push(val);
+        }
+      }
+      return { name: nm, rows: rows.map(r => r || []) };
+    });
+  }
   function boardAskedFeed(people, now) {
     const from = now - 7 * 86400000, by = {};
     (people || []).forEach(p => { if (p.lastSent && p.lastSent >= from) { const d = ymd(new Date(p.lastSent)); (by[d] = by[d] || []).push(p); } });
@@ -1315,7 +1498,7 @@ const Logic = (function () {
   function monthRange(s) { const d = parse(s); return { from: ymd(new Date(d.getFullYear(), d.getMonth(), 1)), to: ymd(new Date(d.getFullYear(), d.getMonth() + 1, 0)) }; }
   function addMonths(s, n) { const d = parse(s); return ymd(new Date(d.getFullYear(), d.getMonth() + n, 1)); }
 
-  return { SHOPS, ROLE_LABEL, ymd, parse, addDays, newState, visibleShops, placeItem, markBakeryReady, setBakeryGiven, confirmBakery, parseTyped, clearMistake, parseSpongeOrder, placeSpongeItems, addTypedProduction, addClosingBatch, ackWeekly, BOARD_NAME, normName, boardMine, boardGroupAlerts, boardDevices, boardThreads, boardPeopleList, boardAskedFeed, receiveWeekly, qtyText, unitOfNeed, canCountNow, lineKey, lineEntries, deleteCakeLine, reportLineMistake, addWeeklySheet, haveZero, qtyOf, WEEKLY_PRODUCTS, WEEKLY_UNITS, UNIT_CYCLE, withUnit, parseClosingLine, otherName, matchCake, SHEET, SHEET_ALIAS, unmarkBakeryReady, placeSpongeBatch, SPONGE_FLAVORS, SPONGE_SIZES, SPONGE_TYPES, CUTOFF_HOUR, listFinal, canUndoProduction, undoProduction, addClosing, removeClosing, canAdd, addEntry, editEntry, deleteEntry, requestDelete, resolveRequest, pendingRequests, placeSponge, receiveSponge, correctReceived, spongeStatus, spongeDiffs, totals, totalsRange, monthRange, addMonths, modelTotals, stock, purchaseSpend, MENU, PRICES, canRequestDelete, placePlan, addSold, confirmReceipt, correctReceipt, reconcile, counterStock, foodCost, setFoodCostLimit, placePlanBatch, orderStatus, markReady };
+  return { SHOPS, ROLE_LABEL, ymd, parse, addDays, newState, visibleShops, placeItem, markBakeryReady, setBakeryGiven, confirmBakery, parseTyped, clearMistake, parseSpongeOrder, placeSpongeItems, addTypedProduction, addClosingBatch, ackWeekly, BOARD_NAME, normName, boardMine, boardGroupAlerts, boardDevices, boardThreads, boardPeopleList, boardAskedFeed, BRANCH_SHOP, erpDate, parseSalesRows, parsePurchaseRows, parseErpSheets, readXlsx, matchErpItem, compareSales, salesLine, purchaseSummary, inr, fmtDay, r1, receiveWeekly, qtyText, unitOfNeed, canCountNow, lineKey, lineEntries, deleteCakeLine, reportLineMistake, addWeeklySheet, haveZero, qtyOf, WEEKLY_PRODUCTS, WEEKLY_UNITS, UNIT_CYCLE, withUnit, parseClosingLine, otherName, matchCake, SHEET, SHEET_ALIAS, unmarkBakeryReady, placeSpongeBatch, SPONGE_FLAVORS, SPONGE_SIZES, SPONGE_TYPES, CUTOFF_HOUR, listFinal, canUndoProduction, undoProduction, addClosing, removeClosing, canAdd, addEntry, editEntry, deleteEntry, requestDelete, resolveRequest, pendingRequests, placeSponge, receiveSponge, correctReceived, spongeStatus, spongeDiffs, totals, totalsRange, monthRange, addMonths, modelTotals, stock, purchaseSpend, MENU, PRICES, canRequestDelete, placePlan, addSold, confirmReceipt, correctReceipt, reconcile, counterStock, foodCost, setFoodCostLimit, placePlanBatch, orderStatus, markReady };
 })();
 </script>
 
@@ -1677,6 +1860,20 @@ const Sync = (function () {
     if (r.error) throw r.error;
     return (r.data || []).map(fromChat).sort((a, b) => a.at - b.at);
   }
+  // ---- ERP reports (Master only) ----
+  function fromErp(r) { return { id: r.id, shop: r.shop, kind: r.kind, from: r.period_from, to: r.period_to, file: r.file_name || '', at: Date.parse(r.created_at) || 0, data: r.data || {} }; }
+  async function erpLoad() {
+    const r = await sb.from('erp_reports').select('*').order('created_at', { ascending: false }).limit(200);
+    if (r.error) throw r.error; return (r.data || []).map(fromErp);
+  }
+  async function erpSave(rep, fileName) {
+    const d = await sb.from('erp_reports').delete().eq('shop', rep.shop).eq('kind', rep.kind).eq('period_from', rep.from).eq('period_to', rep.to);
+    if (d.error) throw d.error;
+    const data = rep.kind === 'sales' ? { items: rep.items, branch: rep.branch } : { days: rep.days, branch: rep.branch };
+    const row = { id: newId(), shop: rep.shop, kind: rep.kind, period_from: rep.from, period_to: rep.to, file_name: String(fileName || '').slice(0, 120), data: data };
+    const r = await sb.from('erp_reports').insert(row); if (r.error) throw r.error;
+  }
+  async function erpDelete(id) { const r = await sb.from('erp_reports').delete().eq('id', id); if (r.error) throw r.error; }
   // ---- Master Board ----
   const BOARD_BUCKET = 'board';
   let boardChan = null;
@@ -1765,7 +1962,7 @@ const Sync = (function () {
     const reg = await navigator.serviceWorker.getRegistration(); const sub = reg && reg.pushManager ? await reg.pushManager.getSubscription() : null;
     if (sub && sb) await sb.from('push_subs').delete().eq('endpoint', sub.endpoint);
   }
-  return { init, signIn, signOut, deviceBeat, deviceDrop, revokeDevice, removeDevice, deviceId: devId, session: loadMe, loadAll, refresh, push, subscribe, boardLoad, boardPeople, boardLogins, boardPersonAdd, boardClaim, boardPersonSet, boardPersonDelete, boardSend, boardUrl, boardDelete, boardSubscribe, boardUnsubscribe, chatLoad, chatSend, chatUrl, chatDelete, chatSubscribe, chatUnsubscribe, pushSave, pushDrop, unsubscribe, setup, staffSql, SLOTS, hooks, pendingCount: () => pending, isDirty: () => dirty, clearDirty: () => { dirty = false; }, state: () => S, _map: { recRow, fromRec, bakRow, fromBak, reqRow, fromReq, rowsOf, stable } };
+  return { init, signIn, signOut, deviceBeat, deviceDrop, revokeDevice, removeDevice, deviceId: devId, session: loadMe, loadAll, refresh, push, subscribe, erpLoad, erpSave, erpDelete, boardLoad, boardPeople, boardLogins, boardPersonAdd, boardClaim, boardPersonSet, boardPersonDelete, boardSend, boardUrl, boardDelete, boardSubscribe, boardUnsubscribe, chatLoad, chatSend, chatUrl, chatDelete, chatSubscribe, chatUnsubscribe, pushSave, pushDrop, unsubscribe, setup, staffSql, SLOTS, hooks, pendingCount: () => pending, isDirty: () => dirty, clearDirty: () => { dirty = false; }, state: () => S, _map: { recRow, fromRec, bakRow, fromBak, reqRow, fromReq, rowsOf, stable } };
 })();
 </script>
 
@@ -1844,7 +2041,7 @@ const Sync = (function () {
       (busy && loginErr ? '<div class="err">' + esc(loginErr) + '</div>' : '') + '</div>';
   }
   function headerHtml() {
-    return '<header><div><div class="who">' + esc(me.name) + '</div><div class="role">' + esc(L.ROLE_LABEL[me.role]) + ' · <span class="sync" id="syncb">' + esc(syncLabel()) + '</span></div></div><div style="display:flex;gap:8px"><button class="ghost" data-act="refresh" aria-label="Refresh">↻</button>' + (me.role === 'shop' ? '<button class="ghost" data-act="tab" data-tab="more" aria-label="More">☰</button>' : '') + '' + (canBoard() ? '<button class="ghost" data-act="board" aria-label="Board">📣' + (boardUnread() ? '<span class="dot"></span>' : '') + '</button>' : '') + (canChat() ? '<button class="ghost" data-act="chat" aria-label="Chat">💬' + (chatUnread() ? '<span class="dot"></span>' : '') + '</button>' : '') + '<button class="ghost" data-act="logout">Sign out</button></div></header>';
+    return '<header><div><div class="who">' + esc(me.name) + '</div><div class="role">' + esc(L.ROLE_LABEL[me.role]) + ' · <span class="sync" id="syncb">' + esc(syncLabel()) + '</span></div></div><div style="display:flex;gap:8px"><button class="ghost" data-act="refresh" aria-label="Refresh">↻</button>' + (me.role === 'shop' ? '<button class="ghost" data-act="tab" data-tab="more" aria-label="More">☰</button>' : '') + '' + (me.role === 'master' ? '<button class="ghost" data-act="ana" aria-label="Analysis">📊</button>' : '') + (canBoard() ? '<button class="ghost" data-act="board" aria-label="Board">📣' + (boardUnread() ? '<span class="dot"></span>' : '') + '</button>' : '') + (canChat() ? '<button class="ghost" data-act="chat" aria-label="Chat">💬' + (chatUnread() ? '<span class="dot"></span>' : '') + '</button>' : '') + '<button class="ghost" data-act="logout">Sign out</button></div></header>';
   }
   function barHtml() {
     if (me.role === 'bakery' || (me.role === 'sales' && tab === 'bakery')) return '';
@@ -2181,6 +2378,93 @@ const Sync = (function () {
   }
   // ---------- Icing chat: Icing teams and YMR only (Sales, HR and Bakery never see it) ----------
   let chat = { open: false, msgs: [], loaded: false, err: '', urls: {}, rec: null, sending: false };
+  // ---------- Analysis (Master only): ERP Excel reports matched with the app ----------
+  let ana = { open: false, reps: [], loaded: false, err: '', view: '', busy: '', lines: [] };
+  function anaLoad() { Sync.erpLoad().then(function (r) { ana.reps = r; ana.loaded = true; ana.err = ''; if (ana.open) anaDraw(); }).catch(function (e) { ana.err = msgOf(e); ana.loaded = true; if (ana.open) anaDraw(); }); }
+  function anaOpen() { ana.open = true; ana.view = ''; anaDraw(); anaLoad(); }
+  function anaStop() { try { if (window.speechSynthesis) window.speechSynthesis.cancel(); } catch (e) { } }
+  function anaClose() { anaStop(); ana.open = false; ana.view = ''; anaDraw(); }
+  function anaSay(texts) {
+    try {
+      const ss = window.speechSynthesis; if (!ss || typeof SpeechSynthesisUtterance === 'undefined') { toast('⚠ This phone cannot read aloud'); return; }
+      ss.cancel(); texts.forEach(function (t) { const u = new SpeechSynthesisUtterance(String(t)); u.lang = 'en-IN'; u.rate = 0.95; ss.speak(u); });
+    } catch (e) { toast('⚠ This phone cannot read aloud'); }
+  }
+  function anaLine(text, tone) {
+    ana.lines.push(text); const i = ana.lines.length - 1;
+    return '<div class="al ' + (tone || '') + '"><span>' + esc(text) + '</span><button class="spk" data-act="anaspeak" data-i="' + i + '" aria-label="Read aloud">🔊</button></div>';
+  }
+  function anaRange(r) { return L.fmtDay(r.from) + ' – ' + L.fmtDay(r.to) + ' ' + String(r.to).slice(0, 4); }
+  function anaCakeHtml(r) {
+    const u = r.kg ? ' kg' : '', tone = r.status === 'ok' ? 'ok' : r.status === 'over' || r.status === 'nomade' ? 'bad' : 'warn';
+    return '<div class="ar ' + tone + '"><b>' + esc(r.cake + (r.slot ? ' · ' + r.slot : '')) + '</b><div class="nums"><span>Made <b>' + L.r1(r.made) + u + '</b></span><span>Sold <b>' + L.r1(r.sold) + u + '</b></span><span>Damaged <b>' + L.r1(r.appDmg) + u + '</b></span><span>At counter <b>' + L.r1(r.left) + u + '</b></span></div>' + anaLine(L.salesLine(r), tone) + '</div>';
+  }
+  function anaFoodHtml(ps, shop) {
+    let h = '<div class="bgrp"><span>🧈 Used vs made (food cost)</span></div>';
+    h += anaLine(shop + ' used ' + L.inr(ps.cons) + ' of material and made ' + L.inr(ps.prod) + ' of cakes. Food cost is ' + ps.pct + ' percent, the limit is ' + ps.limit + ' percent. ' + (ps.pct > ps.limit ? 'This is above the limit.' : 'This is within the limit.') + (ps.high.length ? ' ' + ps.high.length + ' day' + (ps.high.length > 1 ? 's were' : ' was') + ' above the limit.' : ''), ps.pct > ps.limit ? 'bad' : 'ok');
+    ps.days.forEach(d => { h += anaLine(L.fmtDay(d.date) + ': used ' + L.inr(d.cons) + ', made ' + L.inr(d.prod) + ', food cost ' + d.pct + ' percent' + (d.high ? ' — HIGH.' : '.'), d.high ? 'bad' : 'ok'); });
+    if (ps.top.length) { h += '<div class="bgrp"><span>📦 Most material used (by money)</span></div>'; ps.top.forEach(t => { h += anaLine(t.name + ': ' + L.r1(t.qty) + ' for ' + L.inr(t.amt) + '.', ''); }); }
+    return h;
+  }
+  function anaDraw() {
+    const root = $('#ana-root'); if (!root) return;
+    if (!ana.open) { root.innerHTML = ''; return; }
+    ana.lines = []; let head, list = '';
+    const back = '<button class="ghost" data-act="anaback" aria-label="Back">‹</button>';
+    if (ana.err) { head = '<div class="chathead"><b>📊 Analysis</b><button class="ghost" data-act="anaclose" aria-label="Close">✕</button></div>'; list = '<div class="note">⚠ ' + esc(ana.err) + '<br>If this is the first time, YMR must run the analysis setup (SQL) once.</div>'; }
+    else if (!ana.view) {
+      head = '<div class="chathead"><b>📊 Analysis<small>Excel reports from the billing software · Master only</small></b><button class="ghost" data-act="anaclose" aria-label="Close">✕</button></div>';
+      list = '<input type="file" id="anaFile" accept=".xlsx,.xlsm" multiple style="display:none"><button class="btn primary" data-act="anapick">' + (ana.busy ? '⏳ ' + esc(ana.busy) : '⬆ Upload Excel report') + '</button><div class="muted" style="margin:6px 2px 10px">Upload “Sales Product Wise” and “Purchase Report” (.xlsx). The shop is read from the branch code (B5 YMR, B6 NDD, B8 Varkala) and the dates from the report. Upload as often as you like — each period is kept.</div>';
+      if (!ana.loaded) list += '<div class="loading">Loading…</div>';
+      else if (!ana.reps.length) list += '<div class="empty">No report yet.</div>';
+      else ['YMR', 'NDD', 'Varkala'].forEach(sh => {
+        const rs = ana.reps.filter(r => r.shop === sh).sort((a, b) => a.from < b.from ? 1 : -1); if (!rs.length) return;
+        list += '<div class="bgrp"><span>🏪 ' + esc(sh) + '</span></div>';
+        rs.forEach(r => { list += '<div class="bth" data-act="anaopen" data-id="' + esc(r.id) + '"><div><b>' + (r.kind === 'sales' ? '🧾 Sales' : '🧈 Purchase') + ' · ' + esc(anaRange(r)) + '</b><small>' + esc(r.file || '') + '</small></div><a href="#" data-act="anadel" data-id="' + esc(r.id) + '" style="color:#C0392B">delete</a></div>'; });
+      });
+    } else {
+      const rep = ana.reps.find(r => r.id === ana.view);
+      if (!rep) { ana.view = ''; return anaDraw(); }
+      head = '<div class="chathead">' + back + '<b>' + esc(rep.shop) + ' · ' + (rep.kind === 'sales' ? 'Sales vs production' : 'Used vs made') + '<small>' + esc(anaRange(rep)) + '</small></b><button class="ghost" data-act="anaclose" aria-label="Close">✕</button></div>';
+      list = '<div style="display:flex;gap:8px;margin-bottom:8px"><button class="btn" data-act="anaspeakall">🔊 Read everything</button><button class="btn" data-act="anastop">⏹ Stop</button></div>';
+      const AS = Sync.state(), limit = (AS.settings && AS.settings.foodCostLimit) || 30;
+      if (rep.kind === 'sales') {
+        const cmp = L.compareSales(AS, { shop: rep.shop, from: rep.from, to: rep.to, items: rep.data.items });
+        const bad = cmp.rows.filter(r => r.status !== 'ok'), good = cmp.rows.filter(r => r.status === 'ok');
+        const over = cmp.rows.filter(r => r.status === 'over').length, nosale = cmp.rows.filter(r => r.status === 'nosale').length, nomade = cmp.rows.filter(r => r.status === 'nomade').length;
+        list += '<div class="bgrp"><span>📋 Summary</span></div>';
+        list += anaLine(rep.shop + ' sales report from ' + L.fmtDay(rep.from) + ' to ' + L.fmtDay(rep.to) + '. ' + cmp.rows.length + ' cakes compared with the production entered in the app. Sold value ' + L.inr(cmp.soldAmt) + '.', '');
+        list += anaLine(bad.length ? (over ? over + ' cake' + (over > 1 ? 's were' : ' was') + ' sold more than made. ' : '') + (nomade ? nomade + ' sold with no production entered. ' : '') + (nosale ? nosale + ' made but nothing sold. ' : '') + 'Please check these first.' : 'Everything matches. No problem found.', bad.length ? 'bad' : 'ok');
+        if (bad.length) { list += '<div class="bgrp"><span>⚠ Check these first</span></div>'; bad.forEach(r => { list += anaCakeHtml(r); }); }
+        if (good.length) { list += '<div class="bgrp"><span>✅ Matching (' + good.length + ')</span></div>'; good.forEach(r => { list += anaCakeHtml(r); }); }
+        if (cmp.unmatched.length) { list += '<div class="bgrp"><span>❓ In the report, not matched with a cake (' + cmp.unmatched.length + ')</span></div><div class="muted" style="margin:0 2px 6px">Pastries, jars and other items are not compared. If a cake is here, its name differs from the menu.</div><div class="bfeed">' + cmp.unmatched.slice(0, 40).map(i => esc(i.name) + ' · ' + L.r1(i.qty)).join('<br>') + (cmp.unmatched.length > 40 ? '<br>…' : '') + '</div>'; }
+        if (cmp.otherNotSold.length) { list += '<div class="bgrp"><span>❓ Made in the app, not found in the report</span></div><div class="bfeed">' + cmp.otherNotSold.map(i => esc(i.name) + ' · ' + L.r1(i.qty)).join('<br>') + '</div>'; }
+        const pr = ana.reps.filter(r => r.kind === 'purchase' && r.shop === rep.shop && r.from <= rep.to && r.to >= rep.from).sort((a, b) => a.at < b.at ? 1 : -1)[0];
+        if (pr) list += anaFoodHtml(L.purchaseSummary(pr.data, limit), rep.shop);
+        else list += '<div class="note">Upload the “Purchase Report” of the same dates to also see used vs made (food cost).</div>';
+      } else list += anaFoodHtml(L.purchaseSummary(rep.data, limit), rep.shop);
+    }
+    root.innerHTML = '<div class="chatwrap">' + head + '<div class="chatlist" id="analist">' + list + '</div></div>';
+  }
+  async function anaUpload(files) {
+    let ok = 0;
+    for (const f of files) {
+      ana.busy = 'Reading ' + f.name + '…'; anaDraw();
+      try {
+        const buf = await f.arrayBuffer(), rep = L.parseErpSheets(await L.readXlsx(buf));
+        if (!rep) { toast('⚠ ' + f.name + ': this is not a Sales Product Wise or Purchase Report'); continue; }
+        if (!rep.shop) { toast('⚠ ' + f.name + ': branch code ' + (rep.branch || '(none)') + ' is not B5, B6 or B8'); continue; }
+        if (!rep.from || !rep.to) { toast('⚠ ' + f.name + ': dates not found in the report'); continue; }
+        await Sync.erpSave(rep, f.name); ok++; toast('✅ ' + rep.shop + ' · ' + (rep.kind === 'sales' ? 'Sales' : 'Purchase') + ' · ' + anaRange(rep));
+      } catch (e) { toast('⚠ ' + f.name + ': ' + msgOf(e)); }
+    }
+    ana.busy = ''; if (ok) anaLoad(); else anaDraw();
+  }
+  document.addEventListener('change', function (ev) {
+    const t = ev.target; if (!t || t.id !== 'anaFile') return;
+    const fs = Array.prototype.slice.call(t.files || []); if (!fs.length) return;
+    anaUpload(fs); try { t.value = ''; } catch (e) { }
+  });
   // ---------- Master Board ----------
   let board = { open: false, msgs: [], people: [], loaded: false, err: '', logins: [], sel: null, sending: false, rec: null, urls: {} };
   function canBoard() { return !!me && (me.role === 'master' || me.role === 'viewer' || me.role === 'shop'); }
@@ -2199,6 +2483,7 @@ const Sync = (function () {
   }
   function boardReloadPeople() { Sync.boardPeople().then(function (p) { board.people = p; if (board.open) boardDraw(); }).catch(function () { }); }
   function boardInit() {
+    anaStop(); ana = { open: false, reps: [], loaded: false, err: '', view: '', busy: '', lines: [] };
     board = { open: false, msgs: [], people: [], loaded: false, err: '', logins: [], sel: null, sending: false, rec: null, urls: {} };
     if (!canBoard()) return;
     Sync.boardLoad().then(function (m) { board.msgs = m; board.loaded = true; board.err = ''; if (board.open) boardDraw(); else render(); }).catch(function (e) { board.err = msgOf(e); if (board.open) boardDraw(); });
@@ -3359,6 +3644,15 @@ const Sync = (function () {
       case 'wkack': { const r2 = L.ackWeekly(S, me, id, t.dataset.state, today()); if (!r2.ok) toast(r2.error); else { save(); toast(t.dataset.state === 'got' ? '✓ Marked received' : '✗ Marked not received'); } render(); break; }
       case 'pushon': pushEnable(); break;
       case 'pushhide': pushHide = true; render(); break;
+      case 'ana': if (me.role === 'master') anaOpen(); break;
+      case 'anaclose': anaClose(); break;
+      case 'anaback': anaStop(); ana.view = ''; anaDraw(); break;
+      case 'anapick': { const fi = document.getElementById('anaFile'); if (fi && !ana.busy) fi.click(); break; }
+      case 'anaopen': ana.view = t.dataset.id; anaDraw(); break;
+      case 'anadel': { if (me.role !== 'master') break; const did = t.dataset.id; Sync.erpDelete(did).then(function () { ana.reps = ana.reps.filter(r => r.id !== did); if (ana.view === did) ana.view = ''; anaDraw(); toast('Report deleted'); }).catch(function (e) { toast('⚠ ' + msgOf(e)); }); break; }
+      case 'anaspeak': anaSay([ana.lines[Number(t.dataset.i)]]); break;
+      case 'anaspeakall': anaSay(ana.lines.slice()); break;
+      case 'anastop': anaStop(); break;
       case 'board': boardOpen(); break;
       case 'boardclose': boardClose(); break;
       case 'boardback': board.sel = null; boardDraw(); break;
