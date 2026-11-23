@@ -234,7 +234,7 @@ textarea{font-size:15px}
 .bgrp{font-weight:700;margin:14px 2px 2px;display:flex;justify-content:space-between;align-items:center;gap:8px}
 .al{display:flex;justify-content:space-between;gap:8px;align-items:flex-start;padding:8px 10px;margin:4px 0;background:#fff;border:1px solid var(--line);border-radius:10px;font-size:14px;line-height:1.45}.al.bad{border-color:#E7B4AE;background:#FFF5F3}.al.warn{border-color:#EBD89A;background:#FFFBEA}
 .spk{border:0;background:#F3E6E8;border-radius:999px;width:34px;height:34px;flex:none;font-size:16px;padding:0}
-.ar{background:#fff;border:1px solid var(--line);border-radius:12px;padding:9px 10px;margin:8px 0}.ar.bad{border-left:5px solid #C0392B}.ar.warn{border-left:5px solid #E0A800}.ar.ok{border-left:5px solid #2E8B57}.ar .nums{display:flex;flex-wrap:wrap;gap:2px 12px;font-size:13px;color:var(--mut);margin:3px 0}.ar .al{border:0;padding:4px 0;margin:0;background:transparent}
+.arh{display:flex;justify-content:space-between;align-items:center;gap:8px}.ar .why{font-weight:700;margin-top:3px}.ar .refs{font-size:12px;color:var(--mut);margin-top:3px;word-break:break-word}.ar{background:#fff;border:1px solid var(--line);border-radius:12px;padding:9px 10px;margin:8px 0}.ar.bad{border-left:5px solid #C0392B}.ar.warn{border-left:5px solid #E0A800}.ar.ok{border-left:5px solid #2E8B57}.ar .nums{display:flex;flex-wrap:wrap;gap:2px 12px;font-size:13px;color:var(--mut);margin:3px 0}.ar .al{border:0;padding:4px 0;margin:0;background:transparent}
 .bfeed{background:#fff;border:1px solid var(--line);border-radius:12px;padding:9px 12px;margin:10px 0;font-size:13.5px;line-height:1.5}.bfeed b{display:block;margin-bottom:2px}.bfeed .muted{margin-top:3px}
 .bnm{padding:10px 12px;background:#FFF8E1;border-top:1px solid var(--line)}.bnm input{width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:12px;font-size:16px;margin:6px 0}
 @media print{header,nav,.bar,.noprint,#toast,#sheet-root{display:none!important}body{background:#fff}#app{padding:0;max-width:none;min-height:0}main{padding:0}body.printing .psheet:not(.printing){display:none!important}.psheet{border:0;border-radius:0;padding:0;margin:0}}
@@ -1246,9 +1246,9 @@ const Logic = (function () {
   function erpBranch(rows) { const m = erpHeadText(rows).match(/\b(B\d{1,2})\b/); return m ? m[1] : ''; }
   function parseSalesRows(rows) {
     let hi = -1;
-    for (let i = 0; i < Math.min(rows.length, 30); i++) { const r = (rows[i] || []).map(x => erpText(x).toLowerCase()); if (r.indexOf('item') >= 0 && r.some(c => c.indexOf('sales q') === 0)) { hi = i; break; } }
+    for (let i = 0; i < Math.min(rows.length, 30); i++) { const r = Array.from(rows[i] || [], x => erpText(x).toLowerCase()); if (r.indexOf('item') >= 0 && r.some(c => c.indexOf('sales q') === 0)) { hi = i; break; } }
     if (hi < 0) return null;
-    const head = rows[hi].map(x => erpText(x).toLowerCase()), col = f => head.findIndex(f);
+    const head = Array.from(rows[hi], x => erpText(x).toLowerCase()), col = f => head.findIndex(f);
     const cItem = col(c => c === 'item'), cCode = col(c => c === 'code'), cGrp = col(c => c.indexOf('item group') === 0), cUnit = col(c => c === 'unit'), cQty = col(c => c.indexOf('sales q') === 0), cDmg = col(c => c.indexOf('dmg') === 0 || c.indexOf('damage') === 0);
     let cRate = col(c => c === 'sale rate'); const cNet = col(c => c.indexOf('sale rate (') === 0), cTot = col(c => c === 'total'), cGross = col(c => c.indexOf('gross') === 0);
     if (cRate < 0) cRate = cNet;
@@ -1257,7 +1257,7 @@ const Logic = (function () {
       const r = rows[i] || [], name = erpText(r[cItem]), qty = erpNum(r[cQty]);
       if (!name || isNaN(qty) || /^total/i.test(name)) continue;
       const dmg = cDmg >= 0 ? erpNum(r[cDmg]) : 0, rate = cRate >= 0 ? erpNum(r[cRate]) : NaN, tot = cTot >= 0 ? erpNum(r[cTot]) : NaN, gross = cGross >= 0 ? erpNum(r[cGross]) : NaN;
-      items.push({ code: cCode >= 0 ? erpText(r[cCode]) : '', name: name, group: cGrp >= 0 ? erpText(r[cGrp]) : '', unit: cUnit >= 0 ? erpText(r[cUnit]) : '', qty: qty, dmg: isNaN(dmg) ? 0 : dmg, rate: isNaN(rate) ? 0 : rate, amt: !isNaN(tot) ? tot : (!isNaN(gross) ? gross : 0) });
+      items.push({ row: i + 1, code: cCode >= 0 ? erpText(r[cCode]) : '', name: name, group: cGrp >= 0 ? erpText(r[cGrp]) : '', unit: cUnit >= 0 ? erpText(r[cUnit]) : '', qty: qty, dmg: isNaN(dmg) ? 0 : dmg, rate: isNaN(rate) ? 0 : rate, amt: !isNaN(tot) ? tot : (!isNaN(gross) ? gross : 0) });
     }
     if (!items.length) return null;
     const p = erpPeriod(rows), b = erpBranch(rows);
@@ -1266,7 +1266,7 @@ const Logic = (function () {
   function parsePurchaseRows(rows) {
     let dc = null, ic = null, itemMode = false, cur = null; const days = [];
     for (let i = 0; i < rows.length; i++) {
-      const r = rows[i] || [], low = r.map(x => erpText(x).toLowerCase());
+      const r = rows[i] || [], low = Array.from(r, x => erpText(x).toLowerCase());
       if (low.some(c => c.indexOf('consumption') === 0) && low.some(c => c === 'production' || c.indexOf('production') === 0)) {
         dc = { date: low.findIndex(c => c === 'date'), section: low.findIndex(c => c === 'section'), batch: low.findIndex(c => c === 'batch'), good: low.findIndex(c => c.indexOf('good') === 0), cons: low.findIndex(c => c.indexOf('consumption') === 0), prod: low.findIndex(c => c === 'production'), profit: low.findIndex(c => c.indexOf('profit') === 0) };
         if (dc.prod < 0) dc.prod = low.findIndex(c => c.indexOf('production') === 0); continue;
@@ -1277,7 +1277,7 @@ const Logic = (function () {
       const dt = erpDate(r[dc.date]), cons = erpNum(r[dc.cons]), prod = erpNum(r[dc.prod]);
       if (dt && !isNaN(cons) && !isNaN(prod) && erpText(r[dc.section])) {
         itemMode = false; const good = dc.good >= 0 ? erpNum(r[dc.good]) : NaN;
-        cur = { date: dt, section: erpText(r[dc.section]), batch: dc.batch >= 0 ? erpText(r[dc.batch]) : '', good: isNaN(good) ? 0 : good, cons: cons, prod: prod, items: [] }; days.push(cur); continue;
+        cur = { row: i + 1, date: dt, section: erpText(r[dc.section]), batch: dc.batch >= 0 ? erpText(r[dc.batch]) : '', good: isNaN(good) ? 0 : good, cons: cons, prod: prod, items: [] }; days.push(cur); continue;
       }
       if (itemMode && ic && cur) {
         const name = erpText(r[ic.item]), qty = erpNum(r[ic.qty]), amt = ic.amt >= 0 ? erpNum(r[ic.amt]) : NaN;
@@ -1315,13 +1315,15 @@ const Logic = (function () {
   const r1 = n => Math.round(n * 100) / 100;
   // made (app) vs sold (ERP) for one shop and period
   function compareSales(s, rep) {
-    const shop = rep.shop, from = rep.from, to = rep.to, made = {}, dmg = {}, otherMade = {}, usedOther = {}, rows = {}, unmatched = [];
+    const shop = rep.shop, from = rep.from, to = rep.to, made = {}, dmg = {}, otherMade = {}, usedOther = {}, rows = {}, unmatched = [], src = {};
+    const srcAdd = (k, d, q) => { const o = src[k] = src[k] || {}; o[d] = (o[d] || 0) + q; };
+    const srcText = o => o ? Object.keys(o).sort().map(d => fmtDay(d) + ' ' + r1(o[d])).join(', ') : '';
     const key = (c, sl) => c + '|' + sl;
     s.production.forEach(e => {
       if (e.shop !== shop || e.date < from || e.date > to) return;
       if (e.other) { const k = erpTokens(e.item).join(' '); if (k) { (otherMade[k] = otherMade[k] || { name: e.item, qty: 0 }).qty += e.qty; } return; }
-      if (e.model) { const k = key(e.flavor || e.cake || e.item, '1 Kg'); made[k] = (made[k] || 0) + e.qty * (e.weight || 1); return; }
-      if (e.cake && e.size) { const k = key(e.cake, e.size); made[k] = (made[k] || 0) + e.qty; }
+      if (e.model) { const k = key(e.flavor || e.cake || e.item, '1 Kg'); made[k] = (made[k] || 0) + e.qty * (e.weight || 1); srcAdd(k, e.date, e.qty * (e.weight || 1)); return; }
+      if (e.cake && e.size) { const k = key(e.cake, e.size); made[k] = (made[k] || 0) + e.qty; srcAdd(k, e.date, e.qty); }
     });
     s.closing.forEach(e => {
       if (!e.damage || e.shop !== shop || e.date < from || e.date > to || e.other) return;
@@ -1331,7 +1333,7 @@ const Logic = (function () {
     const row = (c, sl) => rows[key(c, sl)] || (rows[key(c, sl)] = { cake: c, slot: sl, made: made[key(c, sl)] || 0, sold: 0, erpDmg: 0, appDmg: dmg[key(c, sl)] || 0, amt: 0, kg: sl === '1 Kg' });
     rep.items.forEach(it => {
       const m = matchErpItem(it);
-      if (m) { const r = row(m.cake, m.slot); r.sold += it.qty; r.erpDmg += it.dmg || 0; r.amt += it.amt || 0; return; }
+      if (m) { const r = row(m.cake, m.slot); r.sold += it.qty; r.erpDmg += it.dmg || 0; r.amt += it.amt || 0; if (it.row) (r.erpRows = r.erpRows || []).push('row ' + it.row + (it.code ? ' · code ' + it.code : '')); return; }
       const ok = erpTokens(it.name).join(' ');
       if (ok && (otherMade[ok] || rows['o|' + ok])) {
         const om = otherMade[ok] || { name: it.name, qty: rows['o|' + ok].made };
@@ -1342,7 +1344,7 @@ const Logic = (function () {
     });
     Object.keys(made).forEach(k => { if (!rows[k]) { const p = k.split('|'); row(p[0], p[1]); } });
     Object.keys(dmg).forEach(k => { if (!rows[k]) { const p = k.split('|'); row(p[0], p[1]); } });
-    const list = Object.keys(rows).map(k => rows[k]).map(r => {
+    const list = Object.keys(rows).map(k => { const r = rows[k]; r.appRef = srcText(src[k]); r.erpRef = (r.erpRows || []).join(', '); return r; }).map(r => {
       r.left = r1(r.made - r.sold - r.appDmg);
       r.status = r.made > 0 && r.sold === 0 ? 'nosale' : r.sold > 0 && r.made === 0 ? 'nomade' : r.left < 0 ? 'over' : 'ok';
       return r;
@@ -1351,6 +1353,33 @@ const Logic = (function () {
     list.sort((a, b) => rank[a.status] - rank[b.status] || (a.cake < b.cake ? -1 : 1));
     const unmadeOther = Object.keys(otherMade).filter(k => !usedOther[k]).map(k => otherMade[k]);
     return { rows: list, unmatched: unmatched, otherNotSold: unmadeOther, soldAmt: list.reduce((a, r) => a + r.amt, 0) };
+  }
+  function erpDays(from, to) { const out = []; let d = from, n = 0; while (d && to && d <= to && n < 400) { out.push(d); d = addDays(d, 1); n++; } return out; }
+  function appProdDates(s, shop) { const m = {}; s.production.forEach(e => { if (e.shop === shop) m[e.date] = (m[e.date] || 0) + 1; }); return m; }
+  // strict: does the app have production for every date of the report (this shop)?
+  function coverage(s, shop, from, to) {
+    const days = erpDays(from, to), pd = appProdDates(s, shop), missing = days.filter(d => !pd[d]);
+    return { total: days.length, have: days.length - missing.length, missing: missing, none: days.length > 0 && missing.length === days.length, full: days.length > 0 && missing.length === 0 };
+  }
+  // purchase report vs app, day by day: value of cakes made (report) against value of production entered in the app
+  function dayCheck(s, rep) {
+    const pd = appProdDates(s, rep.shop), av = {}, by = {};
+    s.production.forEach(e => { if (e.shop === rep.shop && !e.model && !e.other) av[e.date] = (av[e.date] || 0) + e.qty * (e.price || 0); });
+    (rep.days || []).forEach(d => { const o = by[d.date] || (by[d.date] = { erp: 0, row: d.row || 0 }); o.erp += d.prod; });
+    const out = [];
+    erpDays(rep.from, rep.to).forEach(dt => {
+      const erp = by[dt] ? Math.round(by[dt].erp) : 0, app = Math.round(av[dt] || 0), has = !!pd[dt];
+      if (!erp && !has) return;
+      const diff = app - erp, pct = erp > 0 ? Math.round(diff / erp * 1000) / 10 : 0;
+      const st = erp > 0 && !has ? 'noapp' : !erp && has ? 'noerp' : erp > 0 && Math.abs(diff) / erp > 0.15 ? 'diff' : 'ok';
+      out.push({ date: dt, erp: erp, app: app, diff: diff, pct: pct, st: st, row: by[dt] ? by[dt].row : 0 });
+    });
+    const withErp = out.filter(x => x.erp > 0).length;
+    return { days: out, withErp: withErp, bad: out.filter(x => x.st === 'noapp').length, warn: out.filter(x => x.st === 'diff' || x.st === 'noerp').length, ok: out.filter(x => x.st === 'ok').length };
+  }
+  function salesShort(r) {
+    const u = r.kg ? ' kg' : '';
+    return r.status === 'over' ? 'Sold ' + r1(-r.left) + u + ' more than made' : r.status === 'nomade' ? 'Sold, but no production entered' : r.status === 'nosale' ? 'Made, but nothing sold' : '';
   }
   function salesLine(r) {
     const nm = r.cake + (r.slot ? ' ' + r.slot : ''), u = r.kg ? ' kg' : '';
@@ -1405,7 +1434,7 @@ const Logic = (function () {
           if (ref) arr[colIdx(ref)] = val; else arr.push(val);
         }
       }
-      return { name: nm, rows: rows.map(r => r || []) };
+      const out = []; for (let i = 0; i < rows.length; i++) out.push(Array.from(rows[i] || [], x => x == null ? '' : x)); return { name: nm, rows: out };
     });
   }
   function boardAskedFeed(people, now) {
@@ -1498,7 +1527,7 @@ const Logic = (function () {
   function monthRange(s) { const d = parse(s); return { from: ymd(new Date(d.getFullYear(), d.getMonth(), 1)), to: ymd(new Date(d.getFullYear(), d.getMonth() + 1, 0)) }; }
   function addMonths(s, n) { const d = parse(s); return ymd(new Date(d.getFullYear(), d.getMonth() + n, 1)); }
 
-  return { SHOPS, ROLE_LABEL, ymd, parse, addDays, newState, visibleShops, placeItem, markBakeryReady, setBakeryGiven, confirmBakery, parseTyped, clearMistake, parseSpongeOrder, placeSpongeItems, addTypedProduction, addClosingBatch, ackWeekly, BOARD_NAME, normName, boardMine, boardGroupAlerts, boardDevices, boardThreads, boardPeopleList, boardAskedFeed, BRANCH_SHOP, erpDate, parseSalesRows, parsePurchaseRows, parseErpSheets, readXlsx, matchErpItem, compareSales, salesLine, purchaseSummary, inr, fmtDay, r1, receiveWeekly, qtyText, unitOfNeed, canCountNow, lineKey, lineEntries, deleteCakeLine, reportLineMistake, addWeeklySheet, haveZero, qtyOf, WEEKLY_PRODUCTS, WEEKLY_UNITS, UNIT_CYCLE, withUnit, parseClosingLine, otherName, matchCake, SHEET, SHEET_ALIAS, unmarkBakeryReady, placeSpongeBatch, SPONGE_FLAVORS, SPONGE_SIZES, SPONGE_TYPES, CUTOFF_HOUR, listFinal, canUndoProduction, undoProduction, addClosing, removeClosing, canAdd, addEntry, editEntry, deleteEntry, requestDelete, resolveRequest, pendingRequests, placeSponge, receiveSponge, correctReceived, spongeStatus, spongeDiffs, totals, totalsRange, monthRange, addMonths, modelTotals, stock, purchaseSpend, MENU, PRICES, canRequestDelete, placePlan, addSold, confirmReceipt, correctReceipt, reconcile, counterStock, foodCost, setFoodCostLimit, placePlanBatch, orderStatus, markReady };
+  return { SHOPS, ROLE_LABEL, ymd, parse, addDays, newState, visibleShops, placeItem, markBakeryReady, setBakeryGiven, confirmBakery, parseTyped, clearMistake, parseSpongeOrder, placeSpongeItems, addTypedProduction, addClosingBatch, ackWeekly, BOARD_NAME, normName, boardMine, boardGroupAlerts, boardDevices, boardThreads, boardPeopleList, boardAskedFeed, BRANCH_SHOP, erpDate, parseSalesRows, parsePurchaseRows, parseErpSheets, readXlsx, coverage, dayCheck, salesShort, matchErpItem, compareSales, salesLine, purchaseSummary, inr, fmtDay, r1, receiveWeekly, qtyText, unitOfNeed, canCountNow, lineKey, lineEntries, deleteCakeLine, reportLineMistake, addWeeklySheet, haveZero, qtyOf, WEEKLY_PRODUCTS, WEEKLY_UNITS, UNIT_CYCLE, withUnit, parseClosingLine, otherName, matchCake, SHEET, SHEET_ALIAS, unmarkBakeryReady, placeSpongeBatch, SPONGE_FLAVORS, SPONGE_SIZES, SPONGE_TYPES, CUTOFF_HOUR, listFinal, canUndoProduction, undoProduction, addClosing, removeClosing, canAdd, addEntry, editEntry, deleteEntry, requestDelete, resolveRequest, pendingRequests, placeSponge, receiveSponge, correctReceived, spongeStatus, spongeDiffs, totals, totalsRange, monthRange, addMonths, modelTotals, stock, purchaseSpend, MENU, PRICES, canRequestDelete, placePlan, addSold, confirmReceipt, correctReceipt, reconcile, counterStock, foodCost, setFoodCostLimit, placePlanBatch, orderStatus, markReady };
 })();
 </script>
 
@@ -2397,7 +2426,33 @@ const Sync = (function () {
   function anaRange(r) { return L.fmtDay(r.from) + ' – ' + L.fmtDay(r.to) + ' ' + String(r.to).slice(0, 4); }
   function anaCakeHtml(r) {
     const u = r.kg ? ' kg' : '', tone = r.status === 'ok' ? 'ok' : r.status === 'over' || r.status === 'nomade' ? 'bad' : 'warn';
-    return '<div class="ar ' + tone + '"><b>' + esc(r.cake + (r.slot ? ' · ' + r.slot : '')) + '</b><div class="nums"><span>Made <b>' + L.r1(r.made) + u + '</b></span><span>Sold <b>' + L.r1(r.sold) + u + '</b></span><span>Damaged <b>' + L.r1(r.appDmg) + u + '</b></span><span>At counter <b>' + L.r1(r.left) + u + '</b></span></div>' + anaLine(L.salesLine(r), tone) + '</div>';
+    ana.lines.push(L.salesLine(r)); const i = ana.lines.length - 1, sh = L.salesShort(r);
+    const refs = [r.erpRef ? 'Report ' + r.erpRef : '', r.appRef ? 'App ' + r.appRef : (r.made ? '' : 'App: no production entered')].filter(Boolean).join(' · ');
+    return '<div class="ar ' + tone + '"><div class="arh"><b>' + esc(r.cake + (r.slot ? ' · ' + r.slot : '')) + '</b><button class="spk" data-act="anaspeak" data-i="' + i + '" aria-label="Read aloud">🔊</button></div><div class="nums"><span>Made <b>' + L.r1(r.made) + u + '</b></span><span>Sold <b>' + L.r1(r.sold) + u + '</b></span><span>Damaged <b>' + L.r1(r.appDmg) + u + '</b></span><span>At counter <b>' + L.r1(r.left) + u + '</b></span></div>' + (sh ? '<div class="why">' + esc(sh) + '</div>' : '') + (refs ? '<div class="refs">' + esc(refs) + '</div>' : '') + '</div>';
+  }
+  function anaMissing(ds) { return ds.slice(0, 10).map(d => L.fmtDay(d)).join(', ') + (ds.length > 10 ? ' +' + (ds.length - 10) + ' more' : ''); }
+  function anaMatchHtml(cov, shop, from, to) {
+    if (cov.none) return anaLine('❌ DOES NOT MATCH. The app has no production for ' + shop + ' from ' + L.fmtDay(from) + ' to ' + L.fmtDay(to) + '. Nothing was compared. Please check the dates and the shop of this file.', 'bad');
+    if (!cov.full) return anaLine('⚠ Only ' + cov.have + ' of ' + cov.total + ' days have production in the app. Missing: ' + anaMissing(cov.missing) + '. Because of this, some cakes may show as sold with no production.', 'warn');
+    return anaLine('✅ Dates match. All ' + cov.total + ' days have production in the app.', 'ok');
+  }
+  function anaDayHtml(dc, rep) {
+    let h = '<div class="bgrp"><span>📅 Day by day: cakes made (report) vs app</span></div>';
+    if (!dc.days.length) return h + anaLine('No day found in both the report and the app.', 'warn');
+    dc.days.forEach(d => {
+      const ref = d.row ? ' (report row ' + d.row + ')' : '';
+      h += d.st === 'noapp' ? anaLine('❌ ' + L.fmtDay(d.date) + ': report made ' + L.inr(d.erp) + ', but no production entered in the app' + ref + '.', 'bad')
+        : d.st === 'noerp' ? anaLine('⚠ ' + L.fmtDay(d.date) + ': app has production (' + L.inr(d.app) + '), but this day is not in the report.', 'warn')
+        : anaLine((d.st === 'ok' ? '✅ ' : '⚠ ') + L.fmtDay(d.date) + ': report ' + L.inr(d.erp) + ', app ' + L.inr(d.app) + ' (' + (d.pct > 0 ? '+' : '') + d.pct + '%)' + (d.st === 'diff' ? ' — differs a lot' : '') + ref + '.', d.st === 'ok' ? 'ok' : 'warn');
+    });
+    return h;
+  }
+  function anaBadge(r, AS) {
+    try {
+      if (r.kind === 'sales') { const c = L.coverage(AS, r.shop, r.from, r.to); return c.none ? '❌ no production in the app for these dates' : c.full ? '✅ dates match' : '⚠ ' + c.have + ' of ' + c.total + ' days have production'; }
+      const d = L.dayCheck(AS, { shop: r.shop, from: r.from, to: r.to, days: r.data.days });
+      return d.bad && d.bad === d.withErp ? '❌ no production in the app for these dates' : d.bad ? '⚠ ' + d.bad + ' day(s) without production in the app' : d.warn ? '⚠ ' + d.warn + ' day(s) differ' : '✅ dates match';
+    } catch (e) { return ''; }
   }
   function anaFoodHtml(ps, shop) {
     let h = '<div class="bgrp"><span>🧈 Used vs made (food cost)</span></div>';
@@ -2414,13 +2469,13 @@ const Sync = (function () {
     if (ana.err) { head = '<div class="chathead"><b>📊 Analysis</b><button class="ghost" data-act="anaclose" aria-label="Close">✕</button></div>'; list = '<div class="note">⚠ ' + esc(ana.err) + '<br>If this is the first time, YMR must run the analysis setup (SQL) once.</div>'; }
     else if (!ana.view) {
       head = '<div class="chathead"><b>📊 Analysis<small>Excel reports from the billing software · Master only</small></b><button class="ghost" data-act="anaclose" aria-label="Close">✕</button></div>';
-      list = '<input type="file" id="anaFile" multiple style="display:none"><button class="btn primary" data-act="anapick">' + (ana.busy ? '⏳ ' + esc(ana.busy) : '⬆ Upload Excel report') + '</button><div class="muted" style="margin:6px 2px 10px">Upload “Sales Product Wise” and “Purchase Report” (.xlsx). The shop is read from the branch code (B5 YMR, B6 NDD, B8 Varkala) and the dates from the report. Upload as often as you like — each period is kept.</div>';
+      list = '<input type="file" id="anaFile" accept=".xlsx,.xlsm,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" multiple style="display:none"><button class="btn primary" data-act="anapick">' + (ana.busy ? '⏳ ' + esc(ana.busy) : '⬆ Upload Excel report') + '</button><div class="muted" style="margin:6px 2px 10px">Upload “Sales Product Wise” and “Purchase Report” (.xlsx). The shop is read from the branch code (B5 YMR, B6 NDD, B8 Varkala) and the dates from the report. Upload as often as you like — each period is kept.</div>';
       if (!ana.loaded) list += '<div class="loading">Loading…</div>';
       else if (!ana.reps.length) list += '<div class="empty">No report yet.</div>';
       else ['YMR', 'NDD', 'Varkala'].forEach(sh => {
         const rs = ana.reps.filter(r => r.shop === sh).sort((a, b) => a.from < b.from ? 1 : -1); if (!rs.length) return;
         list += '<div class="bgrp"><span>🏪 ' + esc(sh) + '</span></div>';
-        rs.forEach(r => { list += '<div class="bth" data-act="anaopen" data-id="' + esc(r.id) + '"><div><b>' + (r.kind === 'sales' ? '🧾 Sales' : '🧈 Purchase') + ' · ' + esc(anaRange(r)) + '</b><small>' + esc(r.file || '') + '</small></div><a href="#" data-act="anadel" data-id="' + esc(r.id) + '" style="color:#C0392B">delete</a></div>'; });
+        rs.forEach(r => { list += '<div class="bth" data-act="anaopen" data-id="' + esc(r.id) + '"><div><b>' + (r.kind === 'sales' ? '🧾 Sales' : '🧈 Purchase') + ' · ' + esc(anaRange(r)) + '</b><small>' + esc(r.file || '') + ' · ' + esc(anaBadge(r, Sync.state())) + '</small></div><a href="#" data-act="anadel" data-id="' + esc(r.id) + '" style="color:#C0392B">delete</a></div>'; });
       });
     } else {
       const rep = ana.reps.find(r => r.id === ana.view);
@@ -2432,6 +2487,9 @@ const Sync = (function () {
         const cmp = L.compareSales(AS, { shop: rep.shop, from: rep.from, to: rep.to, items: rep.data.items });
         const bad = cmp.rows.filter(r => r.status !== 'ok'), good = cmp.rows.filter(r => r.status === 'ok');
         const over = cmp.rows.filter(r => r.status === 'over').length, nosale = cmp.rows.filter(r => r.status === 'nosale').length, nomade = cmp.rows.filter(r => r.status === 'nomade').length;
+        const cov = L.coverage(AS, rep.shop, rep.from, rep.to);
+        list += anaMatchHtml(cov, rep.shop, rep.from, rep.to);
+        if (!cov.none) {
         list += '<div class="bgrp"><span>📋 Summary</span></div>';
         list += anaLine(rep.shop + ' sales report from ' + L.fmtDay(rep.from) + ' to ' + L.fmtDay(rep.to) + '. ' + cmp.rows.length + ' cakes compared with the production entered in the app. Sold value ' + L.inr(cmp.soldAmt) + '.', '');
         list += anaLine(bad.length ? (over ? over + ' cake' + (over > 1 ? 's were' : ' was') + ' sold more than made. ' : '') + (nomade ? nomade + ' sold with no production entered. ' : '') + (nosale ? nosale + ' made but nothing sold. ' : '') + 'Please check these first.' : 'Everything matches. No problem found.', bad.length ? 'bad' : 'ok');
@@ -2442,7 +2500,14 @@ const Sync = (function () {
         const pr = ana.reps.filter(r => r.kind === 'purchase' && r.shop === rep.shop && r.from <= rep.to && r.to >= rep.from).sort((a, b) => a.at < b.at ? 1 : -1)[0];
         if (pr) list += anaFoodHtml(L.purchaseSummary(pr.data, limit), rep.shop);
         else list += '<div class="note">Upload the “Purchase Report” of the same dates to also see used vs made (food cost).</div>';
-      } else list += anaFoodHtml(L.purchaseSummary(rep.data, limit), rep.shop);
+        }
+      } else {
+        const dc = L.dayCheck(AS, { shop: rep.shop, from: rep.from, to: rep.to, days: rep.data.days });
+        list += dc.withErp && dc.bad === dc.withErp ? anaLine('❌ DOES NOT MATCH. The app has no production for ' + rep.shop + ' on any day of this report. Please check the dates and the shop of this file.', 'bad')
+          : dc.bad ? anaLine('⚠ ' + dc.bad + ' day(s) in the report have no production in the app. See the list below.', 'warn')
+          : dc.warn ? anaLine('⚠ ' + dc.warn + ' day(s) differ from the app. See the list below.', 'warn') : anaLine('✅ All ' + dc.withErp + ' days match the app.', 'ok');
+        list += anaDayHtml(dc, rep) + anaFoodHtml(L.purchaseSummary(rep.data, limit), rep.shop);
+      }
     }
     root.innerHTML = '<div class="chatwrap">' + head + '<div class="chatlist" id="analist">' + list + '</div></div>';
   }
@@ -2455,7 +2520,7 @@ const Sync = (function () {
         if (!rep) { toast('⚠ ' + f.name + ': this is not a Sales Product Wise or Purchase Report'); continue; }
         if (!rep.shop) { toast('⚠ ' + f.name + ': branch code ' + (rep.branch || '(none)') + ' is not B5, B6 or B8'); continue; }
         if (!rep.from || !rep.to) { toast('⚠ ' + f.name + ': dates not found in the report'); continue; }
-        await Sync.erpSave(rep, f.name); ok++; toast('✅ ' + rep.shop + ' · ' + (rep.kind === 'sales' ? 'Sales' : 'Purchase') + ' · ' + anaRange(rep));
+        await Sync.erpSave(rep, f.name); ok++; toast('✅ ' + rep.shop + ' · ' + (rep.kind === 'sales' ? 'Sales' : 'Purchase') + ' · ' + anaRange(rep) + ' · ' + anaBadge({ kind: rep.kind, shop: rep.shop, from: rep.from, to: rep.to, data: rep }, Sync.state()));
       } catch (e) { toast('⚠ ' + f.name + ': ' + msgOf(e)); }
     }
     ana.busy = ''; if (ok) anaLoad(); else anaDraw();
