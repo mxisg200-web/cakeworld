@@ -229,7 +229,10 @@ textarea{font-size:15px}
 .chatbar{display:flex;gap:6px;align-items:flex-end;padding:8px 10px calc(8px + env(safe-area-inset-bottom));background:#fff;border-top:1px solid var(--line)}
 .chatbar textarea{flex:1;min-height:42px;max-height:110px;border:1px solid var(--line);border-radius:14px;padding:9px 12px;font:inherit;resize:none}
 .chatbar button{border:0;border-radius:50%;width:44px;height:44px;font-size:20px;background:var(--pri2);flex:none}.chatbar button.send{background:var(--pri);color:#fff}.chatbar button.rec{background:#C0392B;color:#fff;width:auto;border-radius:22px;padding:0 14px;font-size:14px;font-weight:700}
-@media print{#chat-root{display:none!important}}
+@media print{#chat-root,#board-root{display:none!important}}
+.bth{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:11px 12px;background:#fff;border:1px solid var(--line);border-radius:12px;margin:6px 0;cursor:pointer}.bth small{display:block;color:var(--mut);font-size:12.5px;font-weight:400;max-width:230px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bgrp{font-weight:700;margin:14px 2px 2px;display:flex;justify-content:space-between;align-items:center;gap:8px}
+.bnm{padding:10px 12px;background:#FFF8E1;border-top:1px solid var(--line)}.bnm input{width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:12px;font-size:16px;margin:6px 0}
 @media print{header,nav,.bar,.noprint,#toast,#sheet-root{display:none!important}body{background:#fff}#app{padding:0;max-width:none;min-height:0}main{padding:0}body.printing .psheet:not(.printing){display:none!important}.psheet{border:0;border-radius:0;padding:0;margin:0}}
 header .role{max-width:60vw}
 .mk .shopfix{font-size:16px}
@@ -237,7 +240,7 @@ header .role{max-width:60vw}
 </head>
 <body>
 <div id="app"></div>
-<div id="sheet-root"></div><div id="chat-root"></div>
+<div id="sheet-root"></div><div id="chat-root"></div><div id="board-root"></div>
 <div id="toast"></div>
 
 <script id="logic">
@@ -1206,6 +1209,28 @@ const Logic = (function () {
     log(s, u, 'Weekly list checked: ' + made[0].shop + ' · ' + c('got') + ' received, ' + c('part') + ' partly, ' + c('missing') + ' not received');
     return { ok: true, entries: made, got: c('got'), part: c('part'), missing: c('missing') };
   }
+  // ---- YMR Master Head board (pure helpers) ----
+  const BOARD_NAME = 'YMR Master Head';
+  function normName(s) { return String(s == null ? '' : s).trim().replace(/\s+/g, ' ').toLowerCase(); }
+  // what one Icing person may see: messages for the whole login + their own thread
+  function boardMine(msgs, name) { const n = normName(name); return msgs.filter(m => !m.person || (n && normName(m.person) === n)); }
+  // 3 or more different people writing from one login within a few minutes = maybe a group / shared phone
+  function boardGroupAlerts(msgs, now, windowMs) {
+    const w = windowMs || 15 * 60000, by = {};
+    msgs.forEach(m => { if (m.fromMaster || !m.person || m.at < now - w) return; (by[m.loginId] = by[m.loginId] || { login: m.login, names: {} }).names[normName(m.person)] = m.person; });
+    return Object.keys(by).map(k => ({ loginId: k, login: by[k].login, names: Object.keys(by[k].names).map(x => by[k].names[x]) })).filter(a => a.names.length >= 3);
+  }
+  function boardDevices(msgs, loginId, person) {
+    const n = normName(person), s = {}; msgs.forEach(m => { if (!m.fromMaster && m.loginId === loginId && normName(m.person) === n && m.device) s[m.device] = 1; }); return Object.keys(s).length;
+  }
+  // threads for the Master / HR list: for each login "Everyone" + every person who has written
+  function boardThreads(msgs, logins) {
+    const map = new Map();
+    const get = (id, name, shop) => { if (!map.has(id)) map.set(id, { loginId: id, login: name, shop: shop, people: new Map(), all: [] }); return map.get(id); };
+    logins.forEach(l => get(l.id, l.name, l.shop));
+    msgs.forEach(m => { const g = get(m.loginId, m.login, m.shop); if (m.person) { const k = normName(m.person); if (!g.people.has(k)) g.people.set(k, { person: m.person, msgs: [] }); g.people.get(k).msgs.push(m); } else g.all.push(m); });
+    return Array.from(map.values()).sort((a, b) => a.login < b.login ? -1 : 1);
+  }
   function ackWeekly(s, u, id, state, today) {
     const e = find(s, 'closing', id); if (!e || !e.weekly || e.ack) return fail('Line not found');
     if (u.role !== 'master' && !(u.role === 'shop' && u.shop === e.shop)) return fail('Only the Icing team of this shop can mark this');
@@ -1276,7 +1301,7 @@ const Logic = (function () {
   function monthRange(s) { const d = parse(s); return { from: ymd(new Date(d.getFullYear(), d.getMonth(), 1)), to: ymd(new Date(d.getFullYear(), d.getMonth() + 1, 0)) }; }
   function addMonths(s, n) { const d = parse(s); return ymd(new Date(d.getFullYear(), d.getMonth() + n, 1)); }
 
-  return { SHOPS, ROLE_LABEL, ymd, parse, addDays, newState, visibleShops, placeItem, markBakeryReady, setBakeryGiven, confirmBakery, parseTyped, clearMistake, parseSpongeOrder, placeSpongeItems, addTypedProduction, addClosingBatch, ackWeekly, receiveWeekly, qtyText, unitOfNeed, canCountNow, lineKey, lineEntries, deleteCakeLine, reportLineMistake, addWeeklySheet, haveZero, qtyOf, WEEKLY_PRODUCTS, WEEKLY_UNITS, UNIT_CYCLE, withUnit, parseClosingLine, otherName, matchCake, SHEET, SHEET_ALIAS, unmarkBakeryReady, placeSpongeBatch, SPONGE_FLAVORS, SPONGE_SIZES, SPONGE_TYPES, CUTOFF_HOUR, listFinal, canUndoProduction, undoProduction, addClosing, removeClosing, canAdd, addEntry, editEntry, deleteEntry, requestDelete, resolveRequest, pendingRequests, placeSponge, receiveSponge, correctReceived, spongeStatus, spongeDiffs, totals, totalsRange, monthRange, addMonths, modelTotals, stock, purchaseSpend, MENU, PRICES, canRequestDelete, placePlan, addSold, confirmReceipt, correctReceipt, reconcile, counterStock, foodCost, setFoodCostLimit, placePlanBatch, orderStatus, markReady };
+  return { SHOPS, ROLE_LABEL, ymd, parse, addDays, newState, visibleShops, placeItem, markBakeryReady, setBakeryGiven, confirmBakery, parseTyped, clearMistake, parseSpongeOrder, placeSpongeItems, addTypedProduction, addClosingBatch, ackWeekly, BOARD_NAME, normName, boardMine, boardGroupAlerts, boardDevices, boardThreads, receiveWeekly, qtyText, unitOfNeed, canCountNow, lineKey, lineEntries, deleteCakeLine, reportLineMistake, addWeeklySheet, haveZero, qtyOf, WEEKLY_PRODUCTS, WEEKLY_UNITS, UNIT_CYCLE, withUnit, parseClosingLine, otherName, matchCake, SHEET, SHEET_ALIAS, unmarkBakeryReady, placeSpongeBatch, SPONGE_FLAVORS, SPONGE_SIZES, SPONGE_TYPES, CUTOFF_HOUR, listFinal, canUndoProduction, undoProduction, addClosing, removeClosing, canAdd, addEntry, editEntry, deleteEntry, requestDelete, resolveRequest, pendingRequests, placeSponge, receiveSponge, correctReceived, spongeStatus, spongeDiffs, totals, totalsRange, monthRange, addMonths, modelTotals, stock, purchaseSpend, MENU, PRICES, canRequestDelete, placePlan, addSold, confirmReceipt, correctReceipt, reconcile, counterStock, foodCost, setFoodCostLimit, placePlanBatch, orderStatus, markReady };
 })();
 </script>
 
@@ -1377,7 +1402,7 @@ const Sync = (function () {
     if (r.error) throw new Error(/invalid login/i.test(r.error.message) ? 'Wrong PIN' : r.error.message);
     return loadMe();
   }
-  async function signOut() { unsubscribe(); try { chatUnsubscribe(); } catch (e) { } try { await pushDrop(); } catch (e) { } try { await deviceDrop(); } catch (e) { } try { await sb.auth.signOut(); } catch (e) { } me = null; S = null; snap = emptySnap(); }
+  async function signOut() { unsubscribe(); try { chatUnsubscribe(); } catch (e) { } try { boardUnsubscribe(); } catch (e) { } try { await pushDrop(); } catch (e) { } try { await deviceDrop(); } catch (e) { } try { await sb.auth.signOut(); } catch (e) { } me = null; S = null; snap = emptySnap(); }
 
   // ---- devices: which phones are signed in (YMR can see them and log one out) ----
   const DEV_KEY = 'cw_device';
@@ -1638,6 +1663,32 @@ const Sync = (function () {
     if (r.error) throw r.error;
     return (r.data || []).map(fromChat).sort((a, b) => a.at - b.at);
   }
+  // ---- YMR Master Head board ----
+  let boardChan = null;
+  function fromBoard(r) { return { id: r.id, at: Date.parse(r.created_at), byId: r.by_id, loginId: r.login_id, login: r.login_name, shop: r.shop, person: r.person || '', fromMaster: !!r.from_master, sender: r.sender, body: r.body || '', device: r.device || '' }; }
+  async function boardLoad() {
+    const r = await sb.from('board_messages').select('*').order('created_at', { ascending: false }).limit(500);
+    if (r.error) throw r.error;
+    return (r.data || []).map(fromBoard).sort((a, b) => a.at - b.at);
+  }
+  async function boardLogins() {
+    const r = await sb.from('profiles').select('*').eq('role', 'shop'); if (r.error) throw r.error;
+    return (r.data || []).map(p => ({ id: p.id, name: p.name, shop: p.shop })).sort((a, b) => a.name < b.name ? -1 : 1);
+  }
+  async function boardSend(m) {
+    if (!me) throw new Error('Not signed in');
+    const row = { id: newId(), login_id: m.loginId, login_name: m.login, shop: m.shop, person: m.person || null, from_master: !!m.fromMaster, sender: m.sender, body: String(m.body || '').slice(0, 1000), device: m.device || null };
+    const r = await sb.from('board_messages').insert(row); if (r.error) throw r.error;
+    return fromBoard(Object.assign({ created_at: new Date().toISOString(), by_id: me.id }, row));
+  }
+  async function boardDelete(id) { const r = await sb.from('board_messages').delete().eq('id', id); if (r.error) throw r.error; }
+  function boardSubscribe(cb) {
+    boardUnsubscribe();
+    boardChan = sb.channel('cw-board');
+    boardChan.on('postgres_changes', { event: '*', schema: 'public', table: 'board_messages' }, p => { try { if (p.eventType === 'DELETE') cb({ type: 'DELETE', id: p.old && p.old.id }); else if (p.eventType === 'INSERT') cb({ type: 'INSERT', msg: fromBoard(p.new) }); } catch (e) { } });
+    boardChan.subscribe();
+  }
+  function boardUnsubscribe() { if (boardChan) { try { sb.removeChannel(boardChan); } catch (e) { } boardChan = null; } }
   async function chatSend(m, blob) {
     if (!me) throw new Error('Not signed in');
     let path = null;
@@ -1675,7 +1726,7 @@ const Sync = (function () {
     const reg = await navigator.serviceWorker.getRegistration(); const sub = reg && reg.pushManager ? await reg.pushManager.getSubscription() : null;
     if (sub && sb) await sb.from('push_subs').delete().eq('endpoint', sub.endpoint);
   }
-  return { init, signIn, signOut, deviceBeat, deviceDrop, revokeDevice, removeDevice, deviceId: devId, session: loadMe, loadAll, refresh, push, subscribe, chatLoad, chatSend, chatUrl, chatDelete, chatSubscribe, chatUnsubscribe, pushSave, pushDrop, unsubscribe, setup, staffSql, SLOTS, hooks, pendingCount: () => pending, isDirty: () => dirty, clearDirty: () => { dirty = false; }, state: () => S, _map: { recRow, fromRec, bakRow, fromBak, reqRow, fromReq, rowsOf, stable } };
+  return { init, signIn, signOut, deviceBeat, deviceDrop, revokeDevice, removeDevice, deviceId: devId, session: loadMe, loadAll, refresh, push, subscribe, boardLoad, boardLogins, boardSend, boardDelete, boardSubscribe, boardUnsubscribe, chatLoad, chatSend, chatUrl, chatDelete, chatSubscribe, chatUnsubscribe, pushSave, pushDrop, unsubscribe, setup, staffSql, SLOTS, hooks, pendingCount: () => pending, isDirty: () => dirty, clearDirty: () => { dirty = false; }, state: () => S, _map: { recRow, fromRec, bakRow, fromBak, reqRow, fromReq, rowsOf, stable } };
 })();
 </script>
 
@@ -1754,7 +1805,7 @@ const Sync = (function () {
       (busy && loginErr ? '<div class="err">' + esc(loginErr) + '</div>' : '') + '</div>';
   }
   function headerHtml() {
-    return '<header><div><div class="who">' + esc(me.name) + '</div><div class="role">' + esc(L.ROLE_LABEL[me.role]) + ' · <span class="sync" id="syncb">' + esc(syncLabel()) + '</span></div></div><div style="display:flex;gap:8px"><button class="ghost" data-act="refresh" aria-label="Refresh">↻</button>' + (me.role === 'shop' ? '<button class="ghost" data-act="tab" data-tab="more" aria-label="More">☰</button>' : '') + '' + (canChat() ? '<button class="ghost" data-act="chat" aria-label="Chat">💬' + (chatUnread() ? '<span class="dot"></span>' : '') + '</button>' : '') + '<button class="ghost" data-act="logout">Sign out</button></div></header>';
+    return '<header><div><div class="who">' + esc(me.name) + '</div><div class="role">' + esc(L.ROLE_LABEL[me.role]) + ' · <span class="sync" id="syncb">' + esc(syncLabel()) + '</span></div></div><div style="display:flex;gap:8px"><button class="ghost" data-act="refresh" aria-label="Refresh">↻</button>' + (me.role === 'shop' ? '<button class="ghost" data-act="tab" data-tab="more" aria-label="More">☰</button>' : '') + '' + (canBoard() ? '<button class="ghost" data-act="board" aria-label="Board">📣' + (boardUnread() ? '<span class="dot"></span>' : '') + '</button>' : '') + (canChat() ? '<button class="ghost" data-act="chat" aria-label="Chat">💬' + (chatUnread() ? '<span class="dot"></span>' : '') + '</button>' : '') + '<button class="ghost" data-act="logout">Sign out</button></div></header>';
   }
   function barHtml() {
     if (me.role === 'bakery' || (me.role === 'sales' && tab === 'bakery')) return '';
@@ -2091,6 +2142,95 @@ const Sync = (function () {
   }
   // ---------- Icing chat: Icing teams and YMR only (Sales, HR and Bakery never see it) ----------
   let chat = { open: false, msgs: [], loaded: false, err: '', urls: {}, rec: null, sending: false };
+  // ---------- YMR Master Head board ----------
+  let board = { open: false, msgs: [], loaded: false, err: '', logins: [], sel: null, sending: false };
+  function canBoard() { return !!me && (me.role === 'master' || me.role === 'viewer' || me.role === 'shop'); }
+  function boardKey(k) { return 'cw_board_' + k + '_' + (me ? me.id : ''); }
+  const bMem = {};
+  function bGet(k) { try { const v = window.localStorage.getItem(k); if (v !== null && v !== undefined) return v; } catch (e) { } return bMem[k] === undefined ? null : bMem[k]; }
+  function bSet(k, v) { bMem[k] = v; try { if (v === null) window.localStorage.removeItem(k); else window.localStorage.setItem(k, v); } catch (e) { } if (v === null) delete bMem[k]; }
+  function boardSeen() { return Number(bGet(boardKey('seen'))) || 0; }
+  function boardMarkSeen() { bSet(boardKey('seen'), String(Date.now())); }
+  function boardMyName() { try { const j = JSON.parse(bGet(boardKey('name')) || 'null'); return j && j.name && j.dev === Sync.deviceId() ? j.name : ''; } catch (e) { return ''; } }
+  function boardSetName(n) { bSet(boardKey('name'), n ? JSON.stringify({ name: n, dev: Sync.deviceId() }) : null); }
+  function boardVisible() { return me.role === 'shop' ? L.boardMine(board.msgs, boardMyName()) : board.msgs; }
+  function boardUnread() {
+    if (!canBoard() || board.open) return 0; const s = boardSeen();
+    return boardVisible().filter(m => m.byId !== me.id && m.at > s && (me.role === 'shop' ? m.fromMaster : true)).length;
+  }
+  function boardInit() {
+    board = { open: false, msgs: [], loaded: false, err: '', logins: [], sel: null, sending: false };
+    if (!canBoard()) return;
+    Sync.boardLoad().then(function (m) { board.msgs = m; board.loaded = true; board.err = ''; if (board.open) boardDraw(); else render(); }).catch(function (e) { board.err = msgOf(e); if (board.open) boardDraw(); });
+    if (me.role === 'master') Sync.boardLogins().then(function (l) { board.logins = l; if (board.open) boardDraw(); }).catch(function () { });
+    try { Sync.boardSubscribe(boardEvent); } catch (e) { }
+  }
+  function boardEvent(ev) {
+    if (!canBoard()) return;
+    if (ev.type === 'DELETE') { board.msgs = board.msgs.filter(m => m.id !== ev.id); if (board.open) boardDraw(); return; }
+    const m = ev.msg; if (!m || board.msgs.some(x => x.id === m.id)) return;
+    board.msgs.push(m);
+    if (board.open) boardDraw();
+    if (m.byId !== me.id) {
+      const mine = me.role === 'shop' ? (m.fromMaster && (!m.person || L.normName(m.person) === L.normName(boardMyName()))) : true;
+      if (mine) { chime(); if (!board.open) { toast('📣 ' + (m.fromMaster ? m.sender : m.sender + ' (' + m.login + ')') + ': ' + m.body.slice(0, 60)); clearTimeout(rt); rt = setTimeout(render, 250); } }
+    }
+  }
+  function boardMsgHtml(m, prev) {
+    const mine = me.role === 'master' ? (m.fromMaster && m.sender === L.BOARD_NAME) : me.role === 'viewer' ? m.sender === 'HR' : me.role === 'shop' ? !m.fromMaster : false, d = L.ymd(new Date(m.at)), pd = prev ? L.ymd(new Date(prev.at)) : '';
+    let h = d !== pd ? '<div class="cday">' + esc(d === today() ? 'Today' : fmtShort(d)) + '</div>' : '';
+    return h + '<div class="cm' + (mine ? ' me' : '') + '"><div class="cn">' + esc(m.sender) + (me.role !== 'shop' && !m.fromMaster ? ' · ' + esc(m.login) : '') + '</div><div>' + esc(m.body).replace(/\n/g, '<br>') + '</div><div class="ct">' + fmtTime(m.at) + (me.role === 'master' ? ' · <a href="#" data-act="boarddel" data-id="' + esc(m.id) + '">delete</a>' : '') + '</div></div>';
+  }
+  function boardThreadMsgs(sel) {
+    return board.msgs.filter(m => m.loginId === sel.loginId && (sel.person ? (!m.person || L.normName(m.person) === L.normName(sel.person)) : !m.person));
+  }
+  function boardDraw() {
+    const root = $('#board-root'); if (!root) return;
+    if (!board.open) { root.innerHTML = ''; return; }
+    let keep = ''; try { const t0 = $('#boardText'); if (t0) keep = t0.value; } catch (e) { }
+    let head, list = '', bar = '';
+    const isShop = me.role === 'shop';
+    if (board.err) list = '<div class="note">⚠ The board could not load: ' + esc(board.err) + '<br>If this is the first time, YMR must run the board setup (SQL) once.</div>';
+    else if (!board.loaded) list = '<div class="loading">Loading…</div>';
+    else if (isShop) {
+      const nm = boardMyName(), ms = L.boardMine(board.msgs, nm);
+      head = '<div class="chathead"><b>📣 ' + esc(L.BOARD_NAME) + '<small>' + (nm ? 'You are ' + esc(nm) + ' · private between you, YMR and HR' : 'Private between you, YMR and HR') + '</small></b><button class="ghost" data-act="boardclose" aria-label="Close">✕</button></div>';
+      list = ms.length ? ms.map((m, i) => boardMsgHtml(m, ms[i - 1])).join('') : '<div class="empty">No message from YMR yet.</div>';
+      bar = nm ? '<div class="chatbar"><textarea id="boardText" rows="1" maxlength="1000" placeholder="Write your reply…"></textarea><button class="send" data-act="boardsend" aria-label="Send">➤</button></div><div class="muted" style="text-align:center;padding:2px 0 8px"><a href="#" data-act="boardnotme">Not ' + esc(nm) + '? Change name</a></div>'
+        : '<div class="bnm"><b>Before you reply — what is your name?</b><div class="muted">Write your own name so YMR knows who is writing. Another person on this phone will be asked again.</div><input id="boardName" maxlength="40" placeholder="Your name" autocomplete="off"><button class="btn primary" data-act="boardname">Save my name</button></div>';
+    } else if (!board.sel) {
+      head = '<div class="chathead"><b>📣 ' + esc(L.BOARD_NAME) + ' board<small>' + (me.role === 'master' ? 'Each person has a private chat · HR can read and reply' : 'You can read all chats and reply as HR') + '</small></b><button class="ghost" data-act="boardclose" aria-label="Close">✕</button></div>';
+      const th = L.boardThreads(board.msgs, board.logins), alerts = L.boardGroupAlerts(board.msgs, Date.now()), seen = boardSeen();
+      list = (me.role === 'master' ? '<button class="btn primary" data-act="boardnew">＋ Message a person by name</button>' : '') + (th.length ? '' : '<div class="empty">No messages yet.</div>');
+      th.forEach(g => {
+        const al = alerts.find(a => a.loginId === g.loginId);
+        list += '<div class="bgrp"><span>🏪 ' + esc(g.login) + '</span>' + (al ? '<span class="chip wait">⚠ ' + al.names.length + ' people wrote within 15 min — shared phone / group?</span>' : '') + '</div>';
+        const row = (person, ms, label) => { const last = ms[ms.length - 1], un = ms.filter(m => !m.fromMaster && m.at > seen).length; return '<div class="bth" data-act="boardopen" data-login="' + esc(g.loginId) + '" data-person="' + esc(person) + '"><div><b>' + esc(label) + '</b><small>' + (last ? (last.sender === 'HR' ? 'HR: ' : last.fromMaster ? (me.role === 'master' ? 'You: ' : 'YMR: ') : '') + esc(last.body) : 'Start the chat') + '</small></div>' + (un ? '<span class="chip badc">' + un + ' new</span>' : '') + '</div>'; };
+        list += row('', g.all, 'Everyone in ' + g.login);
+        g.people.forEach(p => { const all = boardThreadMsgs({ loginId: g.loginId, person: p.person }); list += row(p.person, all, '👤 ' + p.person + (L.boardDevices(board.msgs, g.loginId, p.person) > 1 ? ' · 📱 ' + L.boardDevices(board.msgs, g.loginId, p.person) + ' phones' : '')); });
+      });
+    } else {
+      const sel = board.sel, ms = boardThreadMsgs(sel), lg = board.logins.find(l => l.id === sel.loginId) || (board.msgs.find(m => m.loginId === sel.loginId) ? { name: board.msgs.find(m => m.loginId === sel.loginId).login } : { name: 'Icing' });
+      head = '<div class="chathead"><button class="ghost" data-act="boardback" aria-label="Back">‹</button><b>' + (sel.person ? '👤 ' + esc(sel.person) : 'Everyone in ' + esc(lg.name)) + '<small>' + esc(lg.name) + (sel.person ? ' · private chat' : ' · message for the whole login') + '</small></b><button class="ghost" data-act="boardclose" aria-label="Close">✕</button></div>';
+      list = ms.length ? ms.map((m, i) => boardMsgHtml(m, ms[i - 1])).join('') : '<div class="empty">No messages yet.</div>';
+      if (me.role === 'master' || me.role === 'viewer') bar = '<div class="chatbar"><textarea id="boardText" rows="1" maxlength="1000" placeholder="Write as ' + esc(me.role === 'viewer' ? 'HR' : L.BOARD_NAME) + '…"></textarea><button class="send" data-act="boardsend" aria-label="Send">➤</button></div>';
+    }
+    root.innerHTML = '<div class="chatwrap">' + (head || '<div class="chathead"><b>📣 ' + esc(L.BOARD_NAME) + '</b><button class="ghost" data-act="boardclose" aria-label="Close">✕</button></div>') + '<div class="chatlist" id="boardlist">' + list + '</div>' + bar + '</div>';
+    try { const t1 = $('#boardText'); if (t1 && keep) t1.value = keep; const l = $('#boardlist'); if (l) l.scrollTop = l.scrollHeight; } catch (e) { }
+  }
+  function boardOpen() { board.open = true; boardMarkSeen(); boardDraw(); render(); }
+  function boardClose() { board.open = false; board.sel = null; boardMarkSeen(); boardDraw(); render(); }
+  async function boardPost(m) {
+    if (board.sending) return; board.sending = true;
+    try { const sent = await Sync.boardSend(m); if (!board.msgs.some(x => x.id === sent.id)) board.msgs.push(sent); boardMarkSeen(); boardDraw(); }
+    catch (e) { toast('⚠ ' + msgOf(e)); }
+    board.sending = false;
+  }
+  function boardSendText() {
+    const ta = $('#boardText'); if (!ta) return; const v = String(ta.value || '').trim(); if (!v) return;
+    if (me.role === 'master' || me.role === 'viewer') { if (!board.sel) return; const asHr = me.role === 'viewer'; const lg = board.logins.find(l => l.id === board.sel.loginId) || board.msgs.find(m => m.loginId === board.sel.loginId); const nm = lg ? (lg.name || lg.login) : 'Icing', sh = lg ? lg.shop : 'YMR'; ta.value = ''; boardPost({ loginId: board.sel.loginId, login: nm, shop: sh, person: board.sel.person || '', fromMaster: true, sender: asHr ? 'HR' : L.BOARD_NAME, body: v }); }
+    else if (me.role === 'shop') { const nm = boardMyName(); if (!nm) return; ta.value = ''; boardPost({ loginId: me.id, login: me.name, shop: me.shop, person: nm, fromMaster: false, sender: nm, body: v, device: Sync.deviceId() }); }
+  }
   function canChat() { return !!me && (me.role === 'shop' || me.role === 'master'); }
   function chatSeenKey() { return 'cw_chat_seen_' + (me ? me.id : ''); }
   function chatSeen() { try { return Number(localStorage.getItem(chatSeenKey())) || 0; } catch (e) { return 0; } }
@@ -2360,7 +2500,7 @@ const Sync = (function () {
     Sync.hooks.change = function (info) { if (info && info.kicked) { kickOut(); return; } try { notifyFor(info); } catch (e) { } clearTimeout(rt); rt = setTimeout(render, 250); };
     Sync.hooks.status = function (st) { if (st === 'SUBSCRIBED') { if (wasDown) refreshNow(false); wasDown = false; } else if (st === 'CHANNEL_ERROR' || st === 'TIMED_OUT' || st === 'CLOSED') wasDown = true; };
     Sync.subscribe();
-    chatInit(); pushHide = false; pushCheck();
+    chatInit(); boardInit(); pushHide = false; pushCheck();
     if (!started) {
       started = true;
       document.addEventListener('visibilitychange', function () { if (!document.hidden) refreshNow(false); });
@@ -3073,6 +3213,15 @@ const Sync = (function () {
       case 'wkack': { const r2 = L.ackWeekly(S, me, id, t.dataset.state, today()); if (!r2.ok) toast(r2.error); else { save(); toast(t.dataset.state === 'got' ? '✓ Marked received' : '✗ Marked not received'); } render(); break; }
       case 'pushon': pushEnable(); break;
       case 'pushhide': pushHide = true; render(); break;
+      case 'board': boardOpen(); break;
+      case 'boardclose': boardClose(); break;
+      case 'boardback': board.sel = null; boardDraw(); break;
+      case 'boardopen': board.sel = { loginId: t.dataset.login, person: t.dataset.person || '' }; boardDraw(); break;
+      case 'boardsend': boardSendText(); break;
+      case 'boardname': { const el = $('#boardName'), n = el ? String(el.value || '').trim().replace(/\s+/g, ' ') : ''; if (n.length < 2) { toast('Write your name'); break; } if (n.length > 40) { toast('Name is too long'); break; } boardSetName(n); boardDraw(); break; }
+      case 'boardnotme': boardSetName(''); boardDraw(); break;
+      case 'boarddel': { if (me.role !== 'master') break; const bid = t.dataset.id; Sync.boardDelete(bid).then(function () { board.msgs = board.msgs.filter(x => x.id !== bid); boardDraw(); }).catch(function (e) { toast('⚠ ' + msgOf(e)); }); break; }
+      case 'boardnew': { if (me.role !== 'master') break; const ls = board.logins.length ? board.logins : []; openSheet('Message a person', '<form data-form="boardnew"><label>Which team</label><select name="f_login">' + ls.map(l => '<option value="' + esc(l.id) + '">' + esc(l.name) + '</option>').join('') + '</select><label>Person\'s name</label><input name="f_person" maxlength="40" placeholder="e.g. Shamsher" autocomplete="off"><div class="muted">Write the name as the person will write it. They will see this message only in their own chat.</div><label>Message</label><textarea name="f_text" rows="4" maxlength="1000" placeholder="e.g. Hello Shamsher ji, how are you? Any problem at work?"></textarea><div class="err" id="ferr"></div><button class="btn primary">Send</button></form>'); break; }
       case 'chat': chatOpen(); break;
       case 'chatclose': chatClose(); break;
       case 'chatsend': chatSendText(); break;
@@ -3299,6 +3448,11 @@ const Sync = (function () {
       date = r.orders[0].forDate; tab = 'sponge'; save(); closeSheet(); toast('Order locked 🔒 — ' + r.total + ' sponges'); render(); return;
     }
     if (kind === 'undo') { r = L.undoProduction(S, me, id, new Date()); if (!r.ok) return showErr(r.error); save(); closeSheet(); toast('Undone'); render(); return; }
+    if (kind === 'boardnew') {
+      const lid = val(f, 'login'), pn = String(val(f, 'person') || '').trim().replace(/\s+/g, ' '), tx = String(val(f, 'text') || '').trim(), lg = board.logins.find(l => l.id === lid);
+      if (!lg) return showErr('Choose the team'); if (pn.length < 2) return showErr('Write the person\'s name'); if (!tx) return showErr('Write the message');
+      closeSheet(); board.sel = { loginId: lg.id, person: pn }; boardPost({ loginId: lg.id, login: lg.name, shop: lg.shop, person: pn, fromMaster: true, sender: L.BOARD_NAME, body: tx }); return;
+    }
     if (kind === 'wkrecv') {
       const rows = []; for (let i = 0; i < 300; i++) { if (!f.elements['f_i' + i]) break; rows.push({ id: val(f, 'i' + i), got: val(f, 'g' + i) }); }
       r = L.receiveWeekly(S, me, rows, today()); if (!r.ok) return showErr(r.error);
