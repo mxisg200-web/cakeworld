@@ -1182,6 +1182,30 @@ const Logic = (function () {
     log(s, u, 'Weekly purchase sheet: ' + d.shop + ' · ' + made.length + ' items (needed ' + d.forDate + ')');
     return { ok: true, entries: made, count: made.length, skipped: skipped, out: made.filter(e => haveZero(e.have)).length };
   }
+  function unitOfNeed(need, item) { const t = String(need || '').replace(/^[\d.,\s\/½¼¾]+/, '').trim(); return t || WEEKLY_UNITS[item] || ''; }
+  function qtyText(n) { const r = Math.round(n * 100) / 100; return r === 0.5 ? '½' : String(r); }
+  // rows: [{ id, got }] — got empty = skip. Decides full / part / not received by itself.
+  function receiveWeekly(s, u, rows, today) {
+    if (u.role !== 'master' && u.role !== 'shop') return fail('Only the Icing team can check what arrived');
+    const made = [];
+    (rows || []).forEach(r => {
+      const gotRaw = String(r.got == null ? '' : r.got).trim(); if (!gotRaw) return;
+      const e = find(s, 'closing', r.id); if (!e || !e.weekly || e.ack) return;
+      if (u.role === 'shop' && u.shop !== e.shop) return;
+      if (gotRaw.length > 30) return;
+      const needStr = e.sheet ? (e.need || '') : (e.qty != null ? e.qty + ' ' + (e.unit || '') : '');
+      const unit = unitOfNeed(needStr, e.item), got = withUnit(gotRaw, e.item, unit);
+      let state = 'got', pend = '';
+      if (haveZero(gotRaw)) state = 'missing';
+      else { const nn = qtyOf(needStr), gn = qtyOf(gotRaw); if (nn != null && gn != null && gn < nn) { state = 'part'; pend = qtyText(nn - gn) + (unit ? ' ' + unit : ''); } }
+      const a = { id: uid(), date: today, shop: e.shop, text: e.text, item: e.item, weekly: true, ack: true, ref: e.id, state: state, got: got, pend: pend, forDate: e.forDate, by: u.name, at: Date.now() };
+      s.closing.push(a); made.push(a);
+    });
+    if (!made.length) return fail('Write what you got for at least one item');
+    const c = k => made.filter(a => a.state === k).length;
+    log(s, u, 'Weekly list checked: ' + made[0].shop + ' · ' + c('got') + ' received, ' + c('part') + ' partly, ' + c('missing') + ' not received');
+    return { ok: true, entries: made, got: c('got'), part: c('part'), missing: c('missing') };
+  }
   function ackWeekly(s, u, id, state, today) {
     const e = find(s, 'closing', id); if (!e || !e.weekly || e.ack) return fail('Line not found');
     if (u.role !== 'master' && !(u.role === 'shop' && u.shop === e.shop)) return fail('Only the Icing team of this shop can mark this');
@@ -1252,7 +1276,7 @@ const Logic = (function () {
   function monthRange(s) { const d = parse(s); return { from: ymd(new Date(d.getFullYear(), d.getMonth(), 1)), to: ymd(new Date(d.getFullYear(), d.getMonth() + 1, 0)) }; }
   function addMonths(s, n) { const d = parse(s); return ymd(new Date(d.getFullYear(), d.getMonth() + n, 1)); }
 
-  return { SHOPS, ROLE_LABEL, ymd, parse, addDays, newState, visibleShops, placeItem, markBakeryReady, setBakeryGiven, confirmBakery, parseTyped, clearMistake, parseSpongeOrder, placeSpongeItems, addTypedProduction, addClosingBatch, ackWeekly, canCountNow, lineKey, lineEntries, deleteCakeLine, reportLineMistake, addWeeklySheet, haveZero, qtyOf, WEEKLY_PRODUCTS, WEEKLY_UNITS, UNIT_CYCLE, withUnit, parseClosingLine, otherName, matchCake, SHEET, SHEET_ALIAS, unmarkBakeryReady, placeSpongeBatch, SPONGE_FLAVORS, SPONGE_SIZES, SPONGE_TYPES, CUTOFF_HOUR, listFinal, canUndoProduction, undoProduction, addClosing, removeClosing, canAdd, addEntry, editEntry, deleteEntry, requestDelete, resolveRequest, pendingRequests, placeSponge, receiveSponge, correctReceived, spongeStatus, spongeDiffs, totals, totalsRange, monthRange, addMonths, modelTotals, stock, purchaseSpend, MENU, PRICES, canRequestDelete, placePlan, addSold, confirmReceipt, correctReceipt, reconcile, counterStock, foodCost, setFoodCostLimit, placePlanBatch, orderStatus, markReady };
+  return { SHOPS, ROLE_LABEL, ymd, parse, addDays, newState, visibleShops, placeItem, markBakeryReady, setBakeryGiven, confirmBakery, parseTyped, clearMistake, parseSpongeOrder, placeSpongeItems, addTypedProduction, addClosingBatch, ackWeekly, receiveWeekly, qtyText, unitOfNeed, canCountNow, lineKey, lineEntries, deleteCakeLine, reportLineMistake, addWeeklySheet, haveZero, qtyOf, WEEKLY_PRODUCTS, WEEKLY_UNITS, UNIT_CYCLE, withUnit, parseClosingLine, otherName, matchCake, SHEET, SHEET_ALIAS, unmarkBakeryReady, placeSpongeBatch, SPONGE_FLAVORS, SPONGE_SIZES, SPONGE_TYPES, CUTOFF_HOUR, listFinal, canUndoProduction, undoProduction, addClosing, removeClosing, canAdd, addEntry, editEntry, deleteEntry, requestDelete, resolveRequest, pendingRequests, placeSponge, receiveSponge, correctReceived, spongeStatus, spongeDiffs, totals, totalsRange, monthRange, addMonths, modelTotals, stock, purchaseSpend, MENU, PRICES, canRequestDelete, placePlan, addSold, confirmReceipt, correctReceipt, reconcile, counterStock, foodCost, setFoodCostLimit, placePlanBatch, orderStatus, markReady };
 })();
 </script>
 
@@ -1271,6 +1295,7 @@ const Sync = (function () {
   const SLOTS = [['YMR (Master)', 'master', 'YMR'], ['YMR Sales', 'sales', 'YMR'], ['YMR Icing', 'shop', 'YMR'], ['NDD Sales', 'sales', 'NDD'], ['NDD Icing', 'shop', 'NDD'], ['Varkala Sales', 'sales', 'Varkala'], ['Varkala Icing', 'shop', 'Varkala'], ['Bakery', 'bakery', null], ['HR / Sales (view only)', 'viewer', null]];
   let sb = null, chan = null, chan2 = null, S = null, me = null, pending = 0, chain = Promise.resolve();
   let snap = emptySnap();
+  let dirty = false;
   const hooks = { change: null, status: null };
 
   function emptySnap() { return { rec: new Map(), bak: new Map(), req: new Map(), limit: 30 }; }
@@ -1471,7 +1496,7 @@ const Sync = (function () {
   function upsertIn(arr, e) { const i = arr.findIndex(x => x.id === e.id); if (i >= 0) arr[i] = e; else arr.push(e); }
   // Fallback refresh of the recent days (live updates are the main way; this catches anything missed)
   async function refresh(days) {
-    if (!S || pending) return;
+    if (!S || pending || dirty) return;
     const from = L.addDays(L.ymd(new Date()), -(days || 7));
     const recs = await fetchAll('records', q => q.gte('date', from));
     const seen = new Set();
@@ -1504,9 +1529,9 @@ const Sync = (function () {
       const ins = [], upd = [], del = [];
       now.forEach((row, id) => { const o = old.get(id); if (!o) ins.push(row); else { const ch = changed(o, row); if (ch) upd.push([id, ch]); } });
       old.forEach((row, id) => { if (!now.has(id)) del.push(id); });
-      if (ins.length) { const r = await sb.from(table).insert(ins); if (r.error) throw r.error; }
-      for (const u of upd) { const r = await sb.from(table).update(u[1]).eq('id', u[0]).select('id'); if (r.error) throw r.error; if (!r.data || !r.data.length) throw new Error('Not allowed for your login'); }
-      for (const id of del) { const r = await sb.from(table).delete().eq('id', id).select('id'); if (r.error) throw r.error; if (!r.data || !r.data.length) throw new Error('Not allowed for your login'); }
+      for (let i = 0; i < ins.length; i += 40) { const part = ins.slice(i, i + 40); const r = await sb.from(table).insert(part); if (r.error) throw r.error; part.forEach(row => { old.set(row.id, row); }); }
+      for (const u of upd) { const r = await sb.from(table).update(u[1]).eq('id', u[0]).select('id'); if (r.error) throw r.error; if (!r.data || !r.data.length) throw new Error('Not allowed for your login'); old.set(u[0], now.get(u[0])); }
+      for (const id of del) { const r = await sb.from(table).delete().eq('id', id).select('id'); if (r.error) throw r.error; if (!r.data || !r.data.length) throw new Error('Not allowed for your login'); old.delete(id); }
     }
     const lim = Number(S.settings && S.settings.foodCostLimit);
     if (lim > 0 && lim !== snap.limit) { const r = await sb.from('settings').upsert({ key: 'foodCostLimit', value: lim }); if (r.error) throw r.error; }
@@ -1521,7 +1546,7 @@ const Sync = (function () {
     pending++;
     const p = chain.then(pushDiff);
     chain = p.catch(() => { });
-    p.then(() => { pending--; }, () => { pending--; });
+    p.then(() => { pending--; dirty = false; }, () => { pending--; dirty = true; });
     return p;
   }
 
@@ -1650,7 +1675,7 @@ const Sync = (function () {
     const reg = await navigator.serviceWorker.getRegistration(); const sub = reg && reg.pushManager ? await reg.pushManager.getSubscription() : null;
     if (sub && sb) await sb.from('push_subs').delete().eq('endpoint', sub.endpoint);
   }
-  return { init, signIn, signOut, deviceBeat, deviceDrop, revokeDevice, removeDevice, deviceId: devId, session: loadMe, loadAll, refresh, push, subscribe, chatLoad, chatSend, chatUrl, chatDelete, chatSubscribe, chatUnsubscribe, pushSave, pushDrop, unsubscribe, setup, staffSql, SLOTS, hooks, pendingCount: () => pending, state: () => S, _map: { recRow, fromRec, bakRow, fromBak, reqRow, fromReq, rowsOf, stable } };
+  return { init, signIn, signOut, deviceBeat, deviceDrop, revokeDevice, removeDevice, deviceId: devId, session: loadMe, loadAll, refresh, push, subscribe, chatLoad, chatSend, chatUrl, chatDelete, chatSubscribe, chatUnsubscribe, pushSave, pushDrop, unsubscribe, setup, staffSql, SLOTS, hooks, pendingCount: () => pending, isDirty: () => dirty, clearDirty: () => { dirty = false; }, state: () => S, _map: { recRow, fromRec, bakRow, fromBak, reqRow, fromReq, rowsOf, stable } };
 })();
 </script>
 
@@ -1685,12 +1710,18 @@ const Sync = (function () {
   function syncLabel() { return syncSt === 'saving' ? '⏳ Saving…' : syncSt === 'bad' ? '⚠ Not synced' : '✓ Synced'; }
   function setSync(st) { syncSt = st; const b = $('#syncb'); if (b) b.textContent = syncLabel(); }
   // Called after every change: send it to the server. If the server refuses, show why and reload the true data.
+  let saveFail = '', retryT = null;
   function save() {
     setSync('saving');
-    Sync.push().then(function () { setSync(Sync.pendingCount() ? 'saving' : 'ok'); }).catch(function (e) {
-      setSync('bad'); toast('⚠ Not saved: ' + msgOf(e));
-      Sync.loadAll().then(function (s2) { S = s2; setSync('ok'); render(); }).catch(function () { render(); });
+    Sync.push().then(function () { setSync(Sync.pendingCount() ? 'saving' : 'ok'); if (saveFail && !Sync.pendingCount()) { saveFail = ''; toast('✓ Saved now'); render(); } }).catch(function (e) {
+      setSync('bad'); saveFail = msgOf(e) || 'Could not reach the server'; toast('⚠ Not saved: ' + saveFail); render();
+      clearTimeout(retryT); retryT = setTimeout(function () { if (saveFail && Sync.pendingCount() === 0) save(); }, 20000);
     });
+  }
+  try { window.addEventListener('online', function () { if (saveFail && Sync.pendingCount() === 0) save(); }); } catch (e) { }
+  function saveBanner() {
+    if (!saveFail) return '';
+    return '<div class="note" style="background:#FDECEA;border:2px solid #C62828;color:#7F1D1D"><b>⚠ NOT SAVED to the server yet.</b> Your entries are still on this phone — keep the app open and press <b>Try again</b>. It also tries by itself every 20 seconds.<div class="muted" style="margin-top:4px">Reason: ' + esc(saveFail) + '</div><div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap"><button class="btn primary" style="width:auto" data-act="retrysave">Try again now</button><button class="btn sec" style="width:auto" data-act="discardsave">Discard these entries</button></div></div>';
   }
 
   const ownShopOnly = () => me.role === 'shop' || me.role === 'sales';
@@ -2816,10 +2847,18 @@ const Sync = (function () {
     return weekStart(all.sort((a, b) => a.forDate < b.forDate ? 1 : -1)[0].forDate);
   }
   function wkState(id) { let st = null, at = 0; S.closing.forEach(e => { if (e.ack && e.ref === id && e.at >= at) { st = e.state; at = e.at; } }); return st; }
-  function wkChip(id) { const st = wkState(id); return st === 'got' ? ' <span class="chip okc noprint">✓ Received</span>' : st === 'missing' ? ' <span class="chip badc noprint">✗ Not received</span>' : ''; }
+  function wkAckRec(id) { let r = null; S.closing.forEach(e => { if (e.ack && e.ref === id && (!r || e.at >= r.at)) r = e; }); return r; }
+  function wkRecvText(id) {
+    const a = wkAckRec(id); if (!a) return '';
+    if (a.state === 'got') return '<span style="color:#1B5E20;font-weight:700">✓ ' + (a.got ? 'Got ' + esc(a.got) : 'Received') + '</span>';
+    if (a.state === 'part') return '<span style="color:#B26A00;font-weight:700">◐ Got ' + esc(a.got) + '<br>' + esc(a.pend) + ' pending</span>';
+    return '<span style="color:#B71C1C;font-weight:700">✗ Not received</span>';
+  }
+  function wkChip(id) { const st = wkState(id); return st === 'got' ? ' <span class="chip okc noprint">✓ Received</span>' : st === 'part' ? ' <span class="chip wait noprint">◐ Part</span>' : st === 'missing' ? ' <span class="chip badc noprint">✗ Not received</span>' : ''; }
   function ackBar(e) {
     const st = wkState(e.id);
-    let h = '<div style="margin-top:5px">' + (st === 'got' ? '<span class="chip okc">✓ Received</span>' : st === 'missing' ? '<span class="chip badc">✗ Not received</span>' : '<span class="chip wait">Not checked yet</span>') + '</div>';
+    let h = '<div style="margin-top:5px">' + (st ? wkRecvText(e.id) : '<span class="chip wait">Not checked yet</span>') + '</div>';
+    if (e.sheet) return h;
     if (me.role === 'shop' || me.role === 'master') h += '<div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap"><button class="btn ok" style="width:auto;padding:7px 12px;font-size:13px" data-act="wkack" data-id="' + e.id + '" data-state="got">✓ Received</button><button class="btn" style="width:auto;padding:7px 12px;font-size:13px" data-act="wkack" data-id="' + e.id + '" data-state="missing">✗ Not received</button></div>';
     return h;
   }
@@ -2831,7 +2870,7 @@ const Sync = (function () {
     const zero = !!(e.sheet && L.haveZero(e.have));
     const have = e.sheet ? (e.have ? esc(e.have) + (zero ? ' · OUT' : '') : '—') : '—';
     const need = e.sheet ? (e.need ? esc(e.need) : '—') : (e.qty != null ? fmt(e.qty) + (e.unit ? ' ' + esc(e.unit) : '') : '');
-    return '<tr class="hit' + (zero ? ' out' : '') + '"><td class="c1">' + n + '</td><td>' + esc(e.item || e.text) + wkChip(e.id) + '</td><td class="c4">' + (zero ? '<b>' + have + '</b>' : have) + '</td><td class="c4"><b>' + need + '</b></td><td class="c3"></td></tr>';
+    return '<tr class="hit' + (zero ? ' out' : '') + '"><td class="c1">' + n + '</td><td>' + esc(e.item || e.text) + (e.sheet ? '' : wkChip(e.id)) + '</td><td class="c4">' + (zero ? '<b>' + have + '</b>' : have) + '</td><td class="c4"><b>' + need + '</b></td><td class="c4" style="font-size:11px">' + wkRecvText(e.id) + '</td><td class="c3"></td></tr>';
   }
   function weeklySheet(shop) {
     const st = wkBase(), en = L.addDays(st, 6), id = 'ps-w-' + shop, lines = weeklyLines(shop);
@@ -2843,9 +2882,9 @@ const Sync = (function () {
       for (let i = 0; i < 7; i++) {
         const d = L.addDays(st, i), dl = lines.filter(e => e.forDate === d); if (!dl.length) continue;
         days++;
-        rows += '<tr class="dayrow"><td colspan="5">' + DAY_NAMES[new Date(d + 'T12:00:00').getDay()].toUpperCase() + ' · ' + esc(fmtShort(d)) + '</td></tr>' + dl.map(e => { n++; return wkRow(e, n); }).join('');
+        rows += '<tr class="dayrow"><td colspan="6">' + DAY_NAMES[new Date(d + 'T12:00:00').getDay()].toUpperCase() + ' · ' + esc(fmtShort(d)) + '</td></tr>' + dl.map(e => { n++; return wkRow(e, n); }).join('');
       }
-      body += '<table class="ptd"><thead><tr><th>#</th><th>ITEM</th><th>HAVE</th><th>NEED</th><th>✓ ENTERED</th></tr></thead><tbody>' + rows + '</tbody></table><div class="pgrand"><span>' + n + (n === 1 ? ' item' : ' items') + '</span>' + (lines.some(e => e.sheet && L.haveZero(e.have)) ? '<span style="color:#B71C1C">' + lines.filter(e => e.sheet && L.haveZero(e.have)).length + ' finished (0)</span>' : '') + '<span>' + days + (days === 1 ? ' day' : ' days') + '</span></div>';
+      body += '<table class="ptd"><thead><tr><th>#</th><th>ITEM</th><th>HAVE</th><th>NEED</th><th>RECEIVED</th><th>✓ ENTERED</th></tr></thead><tbody>' + rows + '</tbody></table><div class="pgrand"><span>' + n + (n === 1 ? ' item' : ' items') + '</span>' + (lines.some(e => e.sheet && L.haveZero(e.have)) ? '<span style="color:#B71C1C">' + lines.filter(e => e.sheet && L.haveZero(e.have)).length + ' finished (0)</span>' : '') + '<span>' + days + (days === 1 ? ' day' : ' days') + '</span></div>';
     }
     body += '<div class="pfoot">Made by the Cake World app · ' + esc(fmtShort(today())) + ' ' + fmtTime(Date.now()) + '</div>';
     return '<div class="psheet" id="' + id + '">' + body + '</div>' + (lines.length ? '<button class="btn big noprint" data-act="print" data-target="' + id + '">🖨 Save as PDF / Print</button>' : '');
@@ -2860,6 +2899,20 @@ const Sync = (function () {
     const nr = wsRestoreDraft(); if (nr) toast('Your earlier entries are back');
   }
   let wsBlank = false;
+  function wkRecvOpen(shop) {
+    const lines = weeklyLines(shop).filter(e => wkState(e.id) !== 'got');
+    if (!lines.length) { toast('Everything in this week is received 👍'); return; }
+    const rows = lines.map((e, i) => { const need = e.sheet ? (e.need || '') : (e.qty != null ? fmt(e.qty) + (e.unit ? ' ' + e.unit : '') : ''); const a = wkAckRec(e.id);
+      return '<div class="ws-row"><input type="hidden" name="f_i' + i + '" value="' + e.id + '"><div class="ws-n">' + esc(e.item || e.text) + '<div class="muted" style="font-weight:400;font-size:12px">' + esc(DAY_NAMES[new Date(e.forDate + 'T12:00:00').getDay()]) + ' · need <b>' + esc(need || '—') + '</b>' + (a && a.state === 'part' ? ' · got ' + esc(a.got) + ' · ' + esc(a.pend) + ' pending' : a && a.state === 'missing' ? ' · not received' : '') + '</div></div><input name="f_g' + i + '" maxlength="30" placeholder="Got" autocomplete="off"><button type="button" class="ws-u" data-act="wkall" data-i="' + i + '" data-v="' + esc(need) + '">All</button></div>'; }).join('');
+    openSheet('✅ Check what arrived', '<form data-form="wkrecv"><div class="fixed">🏪 ' + esc(shop) + ' · week ' + esc(fmtShort(wkBase())) + '</div><div class="muted" style="margin:8px 0">Write how much you <b>got</b> for each item. Press <b>All</b> if the full amount came. Write <b>0</b> if nothing came. Leave empty to check later. If you got less, the rest shows as <b>pending</b>.</div><div class="ws-head"><span>ITEM</span><span>GOT</span><span></span></div>' + rows + '<div class="ws-save"><div class="err" id="ferr"></div><button type="button" class="btn sec" data-act="wkallfill">All items came in full</button><button class="btn primary" style="margin-top:6px">Save</button></div></form>');
+  }
+  function lastWeekCard(shops) {
+    const cur = weekStart(today()), pe = L.addDays(cur, -1), ps = L.addDays(cur, -7);
+    if (today() > L.addDays(pe, 2) || weekStart(wkBase()) === ps) return '';
+    const rows = S.closing.filter(e => e.weekly && !e.ack && shops.includes(e.shop) && e.forDate >= ps && e.forDate <= pe && wkState(e.id) !== 'got');
+    if (!rows.length) return '';
+    return '<div class="card noprint" style="border:2px solid #B26A00"><h4>⏳ Last week — still not received (' + rows.length + ')</h4>' + rows.slice(0, 12).map(e => '<div class="tot"><div>' + esc(e.item || e.text) + (shops.length > 1 ? ' <span class="muted">· ' + esc(e.shop) + '</span>' : '') + '</div><div style="text-align:right;font-size:12px">' + (wkRecvText(e.id) || '<span class="chip wait">not checked</span>') + '</div></div>').join('') + (rows.length > 12 ? '<div class="muted">… and ' + (rows.length - 12) + ' more</div>' : '') + '<button class="btn sec" data-act="wkgoto" data-d="' + ps + '" style="margin-top:8px">Open last week</button></div>';
+  }
   const WS_KEY = 'cw_wsdraft';
   function wsBlankHtml() {
     const P = L.WEEKLY_PRODUCTS, half = Math.ceil(P.length / 2), shop = (me.role === 'shop' ? me.shop : lastShop) || 'All shops';
@@ -2896,9 +2949,11 @@ const Sync = (function () {
       h += '<button class="btn primary big noprint" data-act="wsheet">📦 Weekly purchase sheet — Have / Need</button><button class="btn sec noprint" data-act="wsblank" style="margin-top:8px">📋 Full item list to carry (print / share)</button>';
       h += '<form data-form="weekly" class="card noprint"><h4>🗓 Weekly purchase — write what to buy</h4><div class="muted">One item on each line, or speak with the 🎤 on your keyboard. Choose the day it is needed. It becomes a neat day-by-day list for Sales.<br><b>Maida 50 kg</b> · <b>Sugar 20 kg</b> · <b>Cake boxes 200</b></div>' + shopField() + '<label>Day needed</label><input type="date" name="f_date" value="' + dv + '"' + dmin + '><textarea name="f_text" rows="6" maxlength="1500" placeholder="Maida 50 kg&#10;Sugar 20 kg&#10;Cake boxes 200" autocomplete="off" autocapitalize="sentences" style="margin-top:8px"></textarea><div class="err" id="ferr"></div><button class="btn primary">＋ Add to weekly list</button></form>';
     }
+    h += lastWeekCard(shops);
     shops.forEach(sh => {
       if (shops.length > 1) h += '<div class="shophead noprint"><span>🏪 ' + esc(sh) + '</span></div>';
       const lines = weeklyLines(sh);
+      if (canAddKind() && lines.length) h += '<button class="btn primary big noprint" data-act="wkrecv" data-shop="' + esc(sh) + '">✅ Check what arrived' + (shops.length > 1 ? ' — ' + esc(sh) : '') + '</button>';
       if (canAddKind() && lines.length) h += '<div class="card noprint"><h4>Lines in this week (' + lines.length + ')</h4>' + lines.map(e => '<div class="tot"><div>' + (e.sheet && L.haveZero(e.have) ? '🔴 ' : '') + esc(e.text) + '<div class="by">' + esc(DAY_NAMES[new Date(e.forDate + 'T12:00:00').getDay()]) + ' ' + esc(fmtShort(e.forDate)) + ' · ' + esc(e.by) + '</div>' + ackBar(e) + '</div>' + ((me.role === 'master' || (me.role === 'shop' && e.date === today())) ? '<button class="icon danger" data-act="rmclosing" data-id="' + e.id + '">✕</button>' : '') + '</div>').join('') + '</div>';
       h += weeklySheet(sh);
     });
@@ -2926,7 +2981,7 @@ const Sync = (function () {
     const app = $('#app');
     if (!me) { app.innerHTML = loginHtml(); return; }
     if (busy) { app.innerHTML = headerHtml() + '<main><div class="loading">' + esc(busy) + '</div></main>'; return; }
-    app.innerHTML = withShare(headerHtml() + barHtml() + '<main>' + pushBanner() + tabHtml() + '</main>' + navHtml());
+    app.innerHTML = withShare(headerHtml() + barHtml() + '<main>' + saveBanner() + pushBanner() + tabHtml() + '</main>' + navHtml());
     try { window.scrollTo(0, y); } catch (e) { }
   }
 
@@ -3025,6 +3080,13 @@ const Sync = (function () {
       case 'chatrec': chatRecToggle(); break;
       case 'chatcancel': chatStopRec(true); break;
       case 'chatdel': { if (me.role !== 'master') break; const cm = chat.msgs.find(x => x.id === id); if (cm) Sync.chatDelete(cm).then(function () { chat.msgs = chat.msgs.filter(x => x.id !== id); try { const n = document.getElementById('cm-' + id); if (n && n.remove) n.remove(); } catch (e) { } toast('Message deleted'); }).catch(function (e) { toast('⚠ ' + msgOf(e)); }); try { ev.preventDefault(); } catch (e) { } break; }
+      case 'retrysave': save(); break;
+      case 'discardsave': openSheet('Discard the entries that are not saved?', '<p class="muted">They are only on this phone and were never saved to the server. If you discard them, they are gone.</p><button class="btn bad" data-act="discardyes">Yes, discard them</button><button class="btn sec" data-act="close" style="margin-top:8px">No, keep them and try again</button>'); break;
+      case 'discardyes': closeSheet(); Sync.clearDirty(); Sync.loadAll().then(function (s2) { S = s2; saveFail = ''; setSync('ok'); toast('Discarded'); render(); }).catch(function () { render(); }); break;
+      case 'wkrecv': wkRecvOpen(t.dataset.shop); break;
+      case 'wkall': { const f2 = t.closest('form'); if (f2 && f2.elements['f_g' + t.dataset.i]) f2.elements['f_g' + t.dataset.i].value = t.dataset.v || '1'; break; }
+      case 'wkallfill': { const f2 = t.closest('form'); if (f2) Array.prototype.forEach.call(f2.querySelectorAll('[data-act="wkall"]'), b => { const el = f2.elements['f_g' + b.dataset.i]; if (el && !String(el.value).trim()) el.value = b.dataset.v || '1'; }); break; }
+      case 'wkgoto': wkSel = t.dataset.d; render(); break;
       case 'wsheet': wsheetOpen(); break;
       case 'wsunit': { try { const cy = L.UNIT_CYCLE, cur = t.textContent.trim(), k = cy.indexOf(cur); t.textContent = cy[(k + 1) % cy.length]; const fm = t.closest('form'); if (fm) wsSaveDraft(fm); } catch (e) { } break; }
       case 'wsblank': wsBlank = !wsBlank; render(); break;
@@ -3237,6 +3299,11 @@ const Sync = (function () {
       date = r.orders[0].forDate; tab = 'sponge'; save(); closeSheet(); toast('Order locked 🔒 — ' + r.total + ' sponges'); render(); return;
     }
     if (kind === 'undo') { r = L.undoProduction(S, me, id, new Date()); if (!r.ok) return showErr(r.error); save(); closeSheet(); toast('Undone'); render(); return; }
+    if (kind === 'wkrecv') {
+      const rows = []; for (let i = 0; i < 300; i++) { if (!f.elements['f_i' + i]) break; rows.push({ id: val(f, 'i' + i), got: val(f, 'g' + i) }); }
+      r = L.receiveWeekly(S, me, rows, today()); if (!r.ok) return showErr(r.error);
+      save(); closeSheet(); toast('✓ ' + r.got + ' received' + (r.part ? ' · ' + r.part + ' partly' : '') + (r.missing ? ' · ' + r.missing + ' not received' : '')); render(); return;
+    }
     if (kind === 'wsheet') {
       const rows = [];
       L.WEEKLY_PRODUCTS.forEach((n, i) => { const hv = String(val(f, 'h' + i) || '').trim(), nd = String(val(f, 'n' + i) || '').trim(); if (hv || nd) { let cu = ''; try { const ch = f.querySelector('.ws-u[data-i="' + i + '"]'); if (ch) cu = ch.textContent.trim(); } catch (e) { } rows.push({ item: n, have: L.withUnit(hv, n, cu), need: L.withUnit(nd, n, cu) }); } });
