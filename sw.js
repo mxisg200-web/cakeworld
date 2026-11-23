@@ -1,10 +1,22 @@
 // Keeps the app opening even with weak internet. Always tries the network first, so updates arrive by themselves.
-const V = 'cw-v2';
+const V = 'cw-v3';
 const SHELL = ['./', 'index.html', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png'];
 self.addEventListener('install', e => { e.waitUntil(caches.open(V).then(c => c.addAll(SHELL)).then(() => self.skipWaiting())); });
 self.addEventListener('activate', e => { e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => k !== V).map(k => caches.delete(k)))).then(() => self.clients.claim())); });
 self.addEventListener('fetch', e => {
   const r = e.request;
+  // Share from WhatsApp / Files straight into the app (Android "Share" menu): keep the files, then open the app
+  if (r.method === 'POST' && new URL(r.url).pathname.endsWith('/share-target')) {
+    e.respondWith((async () => {
+      try {
+        const fd = await r.formData(), fs = fd.getAll('files').filter(f => f && typeof f !== 'string');
+        await caches.delete('cw-share'); const c = await caches.open('cw-share');
+        let i = 0; for (const f of fs) await c.put(new URL('shared/' + (i++), self.registration.scope).href, new Response(f, { headers: { 'X-Name': encodeURIComponent(f.name || 'report.xlsx') } }));
+      } catch (x) { }
+      return Response.redirect(new URL('./?shared=1', self.registration.scope).href, 303);
+    })());
+    return;
+  }
   if (r.method !== 'GET') return;
   const u = new URL(r.url);
   if (u.hostname.endsWith('supabase.co')) return;

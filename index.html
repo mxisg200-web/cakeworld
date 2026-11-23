@@ -2414,7 +2414,7 @@ const Sync = (function () {
     if (ana.err) { head = '<div class="chathead"><b>📊 Analysis</b><button class="ghost" data-act="anaclose" aria-label="Close">✕</button></div>'; list = '<div class="note">⚠ ' + esc(ana.err) + '<br>If this is the first time, YMR must run the analysis setup (SQL) once.</div>'; }
     else if (!ana.view) {
       head = '<div class="chathead"><b>📊 Analysis<small>Excel reports from the billing software · Master only</small></b><button class="ghost" data-act="anaclose" aria-label="Close">✕</button></div>';
-      list = '<input type="file" id="anaFile" accept=".xlsx,.xlsm" multiple style="display:none"><button class="btn primary" data-act="anapick">' + (ana.busy ? '⏳ ' + esc(ana.busy) : '⬆ Upload Excel report') + '</button><div class="muted" style="margin:6px 2px 10px">Upload “Sales Product Wise” and “Purchase Report” (.xlsx). The shop is read from the branch code (B5 YMR, B6 NDD, B8 Varkala) and the dates from the report. Upload as often as you like — each period is kept.</div>';
+      list = '<input type="file" id="anaFile" multiple style="display:none"><button class="btn primary" data-act="anapick">' + (ana.busy ? '⏳ ' + esc(ana.busy) : '⬆ Upload Excel report') + '</button><div class="muted" style="margin:6px 2px 10px">Upload “Sales Product Wise” and “Purchase Report” (.xlsx). The shop is read from the branch code (B5 YMR, B6 NDD, B8 Varkala) and the dates from the report. Upload as often as you like — each period is kept.</div>';
       if (!ana.loaded) list += '<div class="loading">Loading…</div>';
       else if (!ana.reps.length) list += '<div class="empty">No report yet.</div>';
       else ['YMR', 'NDD', 'Varkala'].forEach(sh => {
@@ -2459,6 +2459,19 @@ const Sync = (function () {
       } catch (e) { toast('⚠ ' + f.name + ': ' + msgOf(e)); }
     }
     ana.busy = ''; if (ok) anaLoad(); else anaDraw();
+  }
+  async function shareCheck() {
+    if (!/[?&]shared=/.test(location.search)) return;
+    try { history.replaceState(null, '', location.pathname + location.hash); } catch (e) { }
+    const files = [];
+    try {
+      const c = await caches.open('cw-share'), ks = await c.keys();
+      for (const k of ks) { const r = await c.match(k); if (r) files.push(new File([await r.blob()], decodeURIComponent(r.headers.get('X-Name') || 'report.xlsx'))); }
+      await caches.delete('cw-share');
+    } catch (e) { }
+    if (!me || me.role !== 'master') { toast('Only Master can add Analysis reports'); return; }
+    if (!files.length) { toast('⚠ No file was received. Please try Share again.'); return; }
+    anaOpen(); await anaUpload(files);
   }
   document.addEventListener('change', function (ev) {
     const t = ev.target; if (!t || t.id !== 'anaFile') return;
@@ -2938,6 +2951,7 @@ const Sync = (function () {
       setInterval(function () { if (me && !document.hidden && Sync.pendingCount() === 0) refreshNow(false); }, 180000);
     }
     render();
+    try { shareCheck(); } catch (e) { }
   }
   async function doLogin(pin) {
     pin = String(pin || '').trim();
