@@ -232,6 +232,7 @@ textarea{font-size:15px}
 @media print{#chat-root,#board-root{display:none!important}}
 .bth{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:11px 12px;background:#fff;border:1px solid var(--line);border-radius:12px;margin:6px 0;cursor:pointer}.bth small{display:block;color:var(--mut);font-size:12.5px;font-weight:400;max-width:230px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bgrp{font-weight:700;margin:14px 2px 2px;display:flex;justify-content:space-between;align-items:center;gap:8px}
+.bfeed{background:#fff;border:1px solid var(--line);border-radius:12px;padding:9px 12px;margin:10px 0;font-size:13.5px;line-height:1.5}.bfeed b{display:block;margin-bottom:2px}.bfeed .muted{margin-top:3px}
 .bnm{padding:10px 12px;background:#FFF8E1;border-top:1px solid var(--line)}.bnm input{width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:12px;font-size:16px;margin:6px 0}
 @media print{header,nav,.bar,.noprint,#toast,#sheet-root{display:none!important}body{background:#fff}#app{padding:0;max-width:none;min-height:0}main{padding:0}body.printing .psheet:not(.printing){display:none!important}.psheet{border:0;border-radius:0;padding:0;margin:0}}
 header .role{max-width:60vw}
@@ -1210,7 +1211,7 @@ const Logic = (function () {
     return { ok: true, entries: made, got: c('got'), part: c('part'), missing: c('missing') };
   }
   // ---- YMR Master Head board (pure helpers) ----
-  const BOARD_NAME = 'YMR Master Head';
+  const BOARD_NAME = 'Master Board';
   function normName(s) { return String(s == null ? '' : s).trim().replace(/\s+/g, ' ').toLowerCase(); }
   // what one Icing person may see: messages for the whole login + their own thread
   function boardMine(msgs, name) { const n = normName(name); return msgs.filter(m => !m.person || (n && normName(m.person) === n)); }
@@ -1224,10 +1225,23 @@ const Logic = (function () {
     const n = normName(person), s = {}; msgs.forEach(m => { if (!m.fromMaster && m.loginId === loginId && normName(m.person) === n && m.device) s[m.device] = 1; }); return Object.keys(s).length;
   }
   // threads for the Master / HR list: for each login "Everyone" + every person who has written
-  function boardThreads(msgs, logins) {
+  function boardAskedFeed(people, now) {
+    const from = now - 7 * 86400000, by = {};
+    (people || []).forEach(p => { if (p.lastSent && p.lastSent >= from) { const d = ymd(new Date(p.lastSent)); (by[d] = by[d] || []).push(p); } });
+    return Object.keys(by).sort().reverse().map(d => ({ day: d, names: by[d].sort((a, b) => b.lastSent - a.lastSent).map(p => p.name) }));
+  }
+  function boardPeopleList(msgs, people) {
+    const map = new Map();
+    (people || []).forEach(p => { map.set(normName(p.name), { person: p.name, loginId: p.loginId || '', login: p.login || '', shop: p.shop || '', listed: true, msgs: [] }); });
+    msgs.forEach(m => { if (!m.person) return; const k = normName(m.person); let e = map.get(k); if (!e) { e = { person: m.person, loginId: '', login: '', shop: '', listed: false, msgs: [] }; map.set(k, e); } e.msgs.push(m); });
+    map.forEach(e => { if (!e.loginId && e.msgs.length) { const l = e.msgs[e.msgs.length - 1]; e.loginId = l.loginId; e.login = l.login; e.shop = l.shop; } });
+    return Array.from(map.values()).sort((a, b) => normName(a.person) < normName(b.person) ? -1 : 1);
+  }
+  function boardThreads(msgs, logins, people) {
     const map = new Map();
     const get = (id, name, shop) => { if (!map.has(id)) map.set(id, { loginId: id, login: name, shop: shop, people: new Map(), all: [] }); return map.get(id); };
     logins.forEach(l => get(l.id, l.name, l.shop));
+    (people || []).forEach(p => { const g = get(p.loginId, p.login, p.shop), k = normName(p.name); if (!g.people.has(k)) g.people.set(k, { person: p.name, msgs: [] }); });
     msgs.forEach(m => { const g = get(m.loginId, m.login, m.shop); if (m.person) { const k = normName(m.person); if (!g.people.has(k)) g.people.set(k, { person: m.person, msgs: [] }); g.people.get(k).msgs.push(m); } else g.all.push(m); });
     return Array.from(map.values()).sort((a, b) => a.login < b.login ? -1 : 1);
   }
@@ -1301,7 +1315,7 @@ const Logic = (function () {
   function monthRange(s) { const d = parse(s); return { from: ymd(new Date(d.getFullYear(), d.getMonth(), 1)), to: ymd(new Date(d.getFullYear(), d.getMonth() + 1, 0)) }; }
   function addMonths(s, n) { const d = parse(s); return ymd(new Date(d.getFullYear(), d.getMonth() + n, 1)); }
 
-  return { SHOPS, ROLE_LABEL, ymd, parse, addDays, newState, visibleShops, placeItem, markBakeryReady, setBakeryGiven, confirmBakery, parseTyped, clearMistake, parseSpongeOrder, placeSpongeItems, addTypedProduction, addClosingBatch, ackWeekly, BOARD_NAME, normName, boardMine, boardGroupAlerts, boardDevices, boardThreads, receiveWeekly, qtyText, unitOfNeed, canCountNow, lineKey, lineEntries, deleteCakeLine, reportLineMistake, addWeeklySheet, haveZero, qtyOf, WEEKLY_PRODUCTS, WEEKLY_UNITS, UNIT_CYCLE, withUnit, parseClosingLine, otherName, matchCake, SHEET, SHEET_ALIAS, unmarkBakeryReady, placeSpongeBatch, SPONGE_FLAVORS, SPONGE_SIZES, SPONGE_TYPES, CUTOFF_HOUR, listFinal, canUndoProduction, undoProduction, addClosing, removeClosing, canAdd, addEntry, editEntry, deleteEntry, requestDelete, resolveRequest, pendingRequests, placeSponge, receiveSponge, correctReceived, spongeStatus, spongeDiffs, totals, totalsRange, monthRange, addMonths, modelTotals, stock, purchaseSpend, MENU, PRICES, canRequestDelete, placePlan, addSold, confirmReceipt, correctReceipt, reconcile, counterStock, foodCost, setFoodCostLimit, placePlanBatch, orderStatus, markReady };
+  return { SHOPS, ROLE_LABEL, ymd, parse, addDays, newState, visibleShops, placeItem, markBakeryReady, setBakeryGiven, confirmBakery, parseTyped, clearMistake, parseSpongeOrder, placeSpongeItems, addTypedProduction, addClosingBatch, ackWeekly, BOARD_NAME, normName, boardMine, boardGroupAlerts, boardDevices, boardThreads, boardPeopleList, boardAskedFeed, receiveWeekly, qtyText, unitOfNeed, canCountNow, lineKey, lineEntries, deleteCakeLine, reportLineMistake, addWeeklySheet, haveZero, qtyOf, WEEKLY_PRODUCTS, WEEKLY_UNITS, UNIT_CYCLE, withUnit, parseClosingLine, otherName, matchCake, SHEET, SHEET_ALIAS, unmarkBakeryReady, placeSpongeBatch, SPONGE_FLAVORS, SPONGE_SIZES, SPONGE_TYPES, CUTOFF_HOUR, listFinal, canUndoProduction, undoProduction, addClosing, removeClosing, canAdd, addEntry, editEntry, deleteEntry, requestDelete, resolveRequest, pendingRequests, placeSponge, receiveSponge, correctReceived, spongeStatus, spongeDiffs, totals, totalsRange, monthRange, addMonths, modelTotals, stock, purchaseSpend, MENU, PRICES, canRequestDelete, placePlan, addSold, confirmReceipt, correctReceipt, reconcile, counterStock, foodCost, setFoodCostLimit, placePlanBatch, orderStatus, markReady };
 })();
 </script>
 
@@ -1663,29 +1677,54 @@ const Sync = (function () {
     if (r.error) throw r.error;
     return (r.data || []).map(fromChat).sort((a, b) => a.at - b.at);
   }
-  // ---- YMR Master Head board ----
+  // ---- Master Board ----
+  const BOARD_BUCKET = 'board';
   let boardChan = null;
-  function fromBoard(r) { return { id: r.id, at: Date.parse(r.created_at), byId: r.by_id, loginId: r.login_id, login: r.login_name, shop: r.shop, person: r.person || '', fromMaster: !!r.from_master, sender: r.sender, body: r.body || '', device: r.device || '' }; }
+  function fromBoard(r) { return { id: r.id, at: Date.parse(r.created_at), byId: r.by_id, loginId: r.login_id, login: r.login_name, shop: r.shop, person: r.person || '', fromMaster: !!r.from_master, sender: r.sender, body: r.body || '', device: r.device || '', kind: r.kind || 'text', path: r.media_path || '', secs: r.media_secs || 0 }; }
+  function fromPerson(r) { return { id: r.id, loginId: r.login_id || '', login: r.login_name || '', shop: r.shop || '', name: r.name, auto: r.auto !== false, nextDue: r.next_due ? Date.parse(r.next_due) : 0, lastSent: r.last_sent ? Date.parse(r.last_sent) : 0 }; }
   async function boardLoad() {
     const r = await sb.from('board_messages').select('*').order('created_at', { ascending: false }).limit(500);
     if (r.error) throw r.error;
     return (r.data || []).map(fromBoard).sort((a, b) => a.at - b.at);
   }
+  async function boardPeople() {
+    const r = await sb.from('board_people').select('*').order('created_at', { ascending: true });
+    if (r.error) throw r.error;
+    return (r.data || []).map(fromPerson);
+  }
   async function boardLogins() {
     const r = await sb.from('profiles').select('*').eq('role', 'shop'); if (r.error) throw r.error;
     return (r.data || []).map(p => ({ id: p.id, name: p.name, shop: p.shop })).sort((a, b) => a.name < b.name ? -1 : 1);
   }
-  async function boardSend(m) {
+  async function boardPersonAdd(p) {
+    const row = { id: newId(), name: String(p.name).trim().replace(/\s+/g, ' ').slice(0, 60) };
+    const r = await sb.from('board_people').insert(row); if (r.error) throw r.error;
+    return fromPerson(Object.assign({ auto: true }, row));
+  }
+  async function boardClaim(name) { const r = await sb.rpc('board_claim', { p_name: String(name || '') }); if (r.error) throw r.error; }
+  async function boardPersonSet(id, patch) { const r = await sb.from('board_people').update(patch).eq('id', id); if (r.error) throw r.error; }
+  async function boardPersonDelete(id) { const r = await sb.from('board_people').delete().eq('id', id); if (r.error) throw r.error; }
+  async function boardSend(m, blob) {
     if (!me) throw new Error('Not signed in');
+    let path = null;
+    if (blob) {
+      const t = String(blob.type || ''), ext = /mp4|aac/.test(t) ? 'm4a' : /ogg/.test(t) ? 'ogg' : /webm/.test(t) ? 'webm' : /png/.test(t) ? 'png' : /jpe?g/.test(t) ? 'jpg' : 'bin';
+      path = m.loginId + '/' + Date.now() + '-' + Math.random().toString(36).slice(2, 8) + '.' + ext;
+      const up = await sb.storage.from(BOARD_BUCKET).upload(path, blob, { contentType: t || 'application/octet-stream', upsert: false });
+      if (up.error) throw up.error;
+    }
     const row = { id: newId(), login_id: m.loginId, login_name: m.login, shop: m.shop, person: m.person || null, from_master: !!m.fromMaster, sender: m.sender, body: String(m.body || '').slice(0, 1000), device: m.device || null };
+    if (m.kind && m.kind !== 'text') { row.kind = m.kind; row.media_path = path; row.media_secs = m.secs ? Math.round(m.secs) : null; }
     const r = await sb.from('board_messages').insert(row); if (r.error) throw r.error;
     return fromBoard(Object.assign({ created_at: new Date().toISOString(), by_id: me.id }, row));
   }
+  async function boardUrl(path) { const r = await sb.storage.from(BOARD_BUCKET).createSignedUrl(path, 3600); if (r.error || !r.data) throw (r.error || new Error('No file')); return r.data.signedUrl; }
   async function boardDelete(id) { const r = await sb.from('board_messages').delete().eq('id', id); if (r.error) throw r.error; }
   function boardSubscribe(cb) {
     boardUnsubscribe();
     boardChan = sb.channel('cw-board');
     boardChan.on('postgres_changes', { event: '*', schema: 'public', table: 'board_messages' }, p => { try { if (p.eventType === 'DELETE') cb({ type: 'DELETE', id: p.old && p.old.id }); else if (p.eventType === 'INSERT') cb({ type: 'INSERT', msg: fromBoard(p.new) }); } catch (e) { } });
+    boardChan.on('postgres_changes', { event: '*', schema: 'public', table: 'board_people' }, p => { try { cb({ type: 'PEOPLE' }); } catch (e) { } });
     boardChan.subscribe();
   }
   function boardUnsubscribe() { if (boardChan) { try { sb.removeChannel(boardChan); } catch (e) { } boardChan = null; } }
@@ -1726,7 +1765,7 @@ const Sync = (function () {
     const reg = await navigator.serviceWorker.getRegistration(); const sub = reg && reg.pushManager ? await reg.pushManager.getSubscription() : null;
     if (sub && sb) await sb.from('push_subs').delete().eq('endpoint', sub.endpoint);
   }
-  return { init, signIn, signOut, deviceBeat, deviceDrop, revokeDevice, removeDevice, deviceId: devId, session: loadMe, loadAll, refresh, push, subscribe, boardLoad, boardLogins, boardSend, boardDelete, boardSubscribe, boardUnsubscribe, chatLoad, chatSend, chatUrl, chatDelete, chatSubscribe, chatUnsubscribe, pushSave, pushDrop, unsubscribe, setup, staffSql, SLOTS, hooks, pendingCount: () => pending, isDirty: () => dirty, clearDirty: () => { dirty = false; }, state: () => S, _map: { recRow, fromRec, bakRow, fromBak, reqRow, fromReq, rowsOf, stable } };
+  return { init, signIn, signOut, deviceBeat, deviceDrop, revokeDevice, removeDevice, deviceId: devId, session: loadMe, loadAll, refresh, push, subscribe, boardLoad, boardPeople, boardLogins, boardPersonAdd, boardClaim, boardPersonSet, boardPersonDelete, boardSend, boardUrl, boardDelete, boardSubscribe, boardUnsubscribe, chatLoad, chatSend, chatUrl, chatDelete, chatSubscribe, chatUnsubscribe, pushSave, pushDrop, unsubscribe, setup, staffSql, SLOTS, hooks, pendingCount: () => pending, isDirty: () => dirty, clearDirty: () => { dirty = false; }, state: () => S, _map: { recRow, fromRec, bakRow, fromBak, reqRow, fromReq, rowsOf, stable } };
 })();
 </script>
 
@@ -2142,8 +2181,8 @@ const Sync = (function () {
   }
   // ---------- Icing chat: Icing teams and YMR only (Sales, HR and Bakery never see it) ----------
   let chat = { open: false, msgs: [], loaded: false, err: '', urls: {}, rec: null, sending: false };
-  // ---------- YMR Master Head board ----------
-  let board = { open: false, msgs: [], loaded: false, err: '', logins: [], sel: null, sending: false };
+  // ---------- Master Board ----------
+  let board = { open: false, msgs: [], people: [], loaded: false, err: '', logins: [], sel: null, sending: false, rec: null, urls: {} };
   function canBoard() { return !!me && (me.role === 'master' || me.role === 'viewer' || me.role === 'shop'); }
   function boardKey(k) { return 'cw_board_' + k + '_' + (me ? me.id : ''); }
   const bMem = {};
@@ -2158,31 +2197,79 @@ const Sync = (function () {
     if (!canBoard() || board.open) return 0; const s = boardSeen();
     return boardVisible().filter(m => m.byId !== me.id && m.at > s && (me.role === 'shop' ? m.fromMaster : true)).length;
   }
+  function boardReloadPeople() { Sync.boardPeople().then(function (p) { board.people = p; if (board.open) boardDraw(); }).catch(function () { }); }
   function boardInit() {
-    board = { open: false, msgs: [], loaded: false, err: '', logins: [], sel: null, sending: false };
+    board = { open: false, msgs: [], people: [], loaded: false, err: '', logins: [], sel: null, sending: false, rec: null, urls: {} };
     if (!canBoard()) return;
     Sync.boardLoad().then(function (m) { board.msgs = m; board.loaded = true; board.err = ''; if (board.open) boardDraw(); else render(); }).catch(function (e) { board.err = msgOf(e); if (board.open) boardDraw(); });
+    boardReloadPeople();
     if (me.role === 'master') Sync.boardLogins().then(function (l) { board.logins = l; if (board.open) boardDraw(); }).catch(function () { });
     try { Sync.boardSubscribe(boardEvent); } catch (e) { }
   }
   function boardEvent(ev) {
     if (!canBoard()) return;
+    if (ev.type === 'PEOPLE') { boardReloadPeople(); return; }
     if (ev.type === 'DELETE') { board.msgs = board.msgs.filter(m => m.id !== ev.id); if (board.open) boardDraw(); return; }
     const m = ev.msg; if (!m || board.msgs.some(x => x.id === m.id)) return;
     board.msgs.push(m);
     if (board.open) boardDraw();
     if (m.byId !== me.id) {
       const mine = me.role === 'shop' ? (m.fromMaster && (!m.person || L.normName(m.person) === L.normName(boardMyName()))) : true;
-      if (mine) { chime(); if (!board.open) { toast('📣 ' + (m.fromMaster ? m.sender : m.sender + ' (' + m.login + ')') + ': ' + m.body.slice(0, 60)); clearTimeout(rt); rt = setTimeout(render, 250); } }
+      if (mine) { chime(); if (!board.open) { toast('📣 ' + (m.fromMaster ? (m.sender === 'HR' ? 'HR' : L.BOARD_NAME) : m.sender + ' (' + m.login + ')') + ': ' + m.body.slice(0, 60)); clearTimeout(rt); rt = setTimeout(render, 250); } }
     }
   }
   function boardMsgHtml(m, prev) {
-    const mine = me.role === 'master' ? (m.fromMaster && m.sender === L.BOARD_NAME) : me.role === 'viewer' ? m.sender === 'HR' : me.role === 'shop' ? !m.fromMaster : false, d = L.ymd(new Date(m.at)), pd = prev ? L.ymd(new Date(prev.at)) : '';
-    let h = d !== pd ? '<div class="cday">' + esc(d === today() ? 'Today' : fmtShort(d)) + '</div>' : '';
-    return h + '<div class="cm' + (mine ? ' me' : '') + '"><div class="cn">' + esc(m.sender) + (me.role !== 'shop' && !m.fromMaster ? ' · ' + esc(m.login) : '') + '</div><div>' + esc(m.body).replace(/\n/g, '<br>') + '</div><div class="ct">' + fmtTime(m.at) + (me.role === 'master' ? ' · <a href="#" data-act="boarddel" data-id="' + esc(m.id) + '">delete</a>' : '') + '</div></div>';
+    const byMaster = m.fromMaster && m.sender !== 'HR', nm = byMaster ? L.BOARD_NAME : m.sender;
+    const mine = me.role === 'master' ? byMaster : me.role === 'viewer' ? m.sender === 'HR' : me.role === 'shop' ? !m.fromMaster : false, d = L.ymd(new Date(m.at)), pd = prev ? L.ymd(new Date(prev.at)) : '';
+    let h = d !== pd ? '<div class="cday">' + esc(d === today() ? 'Today' : fmtShort(d)) + '</div>' : '', body;
+    if (m.kind === 'voice') body = '<audio controls preload="none" data-media="' + esc(m.path) + '"></audio>' + (m.secs ? '<div class="muted">' + Math.floor(m.secs / 60) + ':' + String(m.secs % 60).padStart(2, '0') + '</div>' : '');
+    else if (m.kind === 'photo') body = '<img alt="Photo" data-media="' + esc(m.path) + '">';
+    else body = '<div>' + esc(m.body).replace(/\n/g, '<br>') + '</div>';
+    return h + '<div class="cm' + (mine ? ' me' : '') + '"><div class="cn">' + esc(nm) + (me.role !== 'shop' && !m.fromMaster ? ' · ' + esc(m.login) : '') + '</div>' + body + '<div class="ct">' + fmtTime(m.at) + (me.role === 'master' ? ' · <a href="#" data-act="boarddel" data-id="' + esc(m.id) + '">delete</a>' : '') + '</div></div>';
   }
   function boardThreadMsgs(sel) {
-    return board.msgs.filter(m => m.loginId === sel.loginId && (sel.person ? (!m.person || L.normName(m.person) === L.normName(sel.person)) : !m.person));
+    if (!sel.person) return board.msgs.filter(m => m.loginId === sel.loginId && !m.person);
+    const n = L.normName(sel.person), cur = boardPersonLogin(sel.person);
+    return board.msgs.filter(m => m.person ? L.normName(m.person) === n : (cur && m.loginId === cur.id));
+  }
+  function boardPerson(name) { const n = L.normName(name); return board.people.find(p => L.normName(p.name) === n) || null; }
+  // the Icing login this person is on now: from the list (set when they tap their name), else from their latest message
+  function boardPersonLogin(name) {
+    const n = L.normName(name), pr = boardPerson(name);
+    if (pr && pr.loginId) return { id: pr.loginId, name: pr.login, shop: pr.shop };
+    for (let i = board.msgs.length - 1; i >= 0; i--) { const m = board.msgs[i]; if (m.person && L.normName(m.person) === n) return { id: m.loginId, name: m.login, shop: m.shop }; }
+    return null;
+  }
+  function boardLoginInfo(id) {
+    const a = board.logins.find(l => l.id === id); if (a) return { name: a.name, shop: a.shop };
+    const b = board.people.find(p => p.loginId === id); if (b) return { name: b.login, shop: b.shop };
+    const c = board.msgs.find(m => m.loginId === id); if (c) return { name: c.login, shop: c.shop };
+    return null;
+  }
+  function boardBase() {
+    if (me.role === 'shop') { const nm = boardMyName(); if (!nm) return null; return { loginId: me.id, login: me.name, shop: me.shop, person: nm, fromMaster: false, sender: nm, device: Sync.deviceId() }; }
+    if (!board.sel) return null; let lid, info;
+    if (board.sel.person) { const pl = boardPersonLogin(board.sel.person); if (!pl) { toast(board.sel.person + ' has not opened the Board yet. Ask them to open 📣 and tap their name once.'); return null; } lid = pl.id; info = pl; }
+    else { lid = board.sel.loginId; info = boardLoginInfo(lid); if (!info) return null; }
+    return { loginId: lid, login: info.name, shop: info.shop, person: board.sel.person || '', fromMaster: true, sender: me.role === 'viewer' ? 'HR' : L.BOARD_NAME };
+  }
+  function boardBarHtml(ph) {
+    return '<div class="chatbar"><input type="file" id="boardPhoto" accept="image/*" style="display:none"><button data-act="boardphoto" aria-label="Photo">📷</button><textarea id="boardText" rows="1" maxlength="1000" placeholder="' + esc(ph) + '"></textarea><button class="rec" id="boardCancel" data-act="boardcancel" style="display:none" aria-label="Cancel">✕</button><button id="boardRec" data-act="boardrec" aria-label="Voice message">🎤</button><button class="send" data-act="boardsend" aria-label="Send">➤</button></div>';
+  }
+  function boardFeedHtml() {
+    const days = L.boardAskedFeed(board.people, Date.now()); if (!days.length) return '';
+    const yest = L.ymd(new Date(Date.now() - 86400000));
+    return '<div class="bfeed"><b>📣 Master Board asked</b>' + days.map(d => '<div><b style="display:inline">' + esc(d.day === today() ? 'Today' : d.day === yest ? 'Yesterday' : fmtShort(d.day)) + ':</b> ' + d.names.map(esc).join(', ') + '</div>').join('') + '<div class="muted">Everyone gets a turn 🙂</div></div>';
+  }
+  function boardHydrate() {
+    try {
+      Array.prototype.forEach.call(document.querySelectorAll('#boardlist [data-media]'), function (n) {
+        if (n.getAttribute('data-done')) return; n.setAttribute('data-done', '1');
+        const p = n.getAttribute('data-media'), go = function (u) { n.src = u; };
+        if (board.urls[p]) { go(board.urls[p]); return; }
+        Sync.boardUrl(p).then(function (u) { board.urls[p] = u; go(u); }).catch(function () { n.removeAttribute('data-done'); });
+      });
+    } catch (e) { }
   }
   function boardDraw() {
     const root = $('#board-root'); if (!root) return;
@@ -2193,43 +2280,102 @@ const Sync = (function () {
     if (board.err) list = '<div class="note">⚠ The board could not load: ' + esc(board.err) + '<br>If this is the first time, YMR must run the board setup (SQL) once.</div>';
     else if (!board.loaded) list = '<div class="loading">Loading…</div>';
     else if (isShop) {
-      const nm = boardMyName(), ms = L.boardMine(board.msgs, nm);
-      head = '<div class="chathead"><b>📣 ' + esc(L.BOARD_NAME) + '<small>' + (nm ? 'You are ' + esc(nm) + ' · private between you, YMR and HR' : 'Private between you, YMR and HR') + '</small></b><button class="ghost" data-act="boardclose" aria-label="Close">✕</button></div>';
-      list = ms.length ? ms.map((m, i) => boardMsgHtml(m, ms[i - 1])).join('') : '<div class="empty">No message from YMR yet.</div>';
-      bar = nm ? '<div class="chatbar"><textarea id="boardText" rows="1" maxlength="1000" placeholder="Write your reply…"></textarea><button class="send" data-act="boardsend" aria-label="Send">➤</button></div><div class="muted" style="text-align:center;padding:2px 0 8px"><a href="#" data-act="boardnotme">Not ' + esc(nm) + '? Change name</a></div>'
-        : '<div class="bnm"><b>Before you reply — what is your name?</b><div class="muted">Write your own name so YMR knows who is writing. Another person on this phone will be asked again.</div><input id="boardName" maxlength="40" placeholder="Your name" autocomplete="off"><button class="btn primary" data-act="boardname">Save my name</button></div>';
+      const nm = boardMyName(), ms = L.boardMine(board.msgs, nm), names = board.people.slice().sort((a, b) => L.normName(a.name) < L.normName(b.name) ? -1 : 1);
+      head = '<div class="chathead"><b>📣 ' + esc(L.BOARD_NAME) + '<small>' + (nm ? 'You are ' + esc(nm) + ' · private between you, Master and HR' : 'Private between you, Master and HR') + '</small></b><button class="ghost" data-act="boardclose" aria-label="Close">✕</button></div>';
+      list = boardFeedHtml() + (ms.length ? ms.map((m, i) => boardMsgHtml(m, ms[i - 1])).join('') : '<div class="empty">No message yet.</div>');
+      bar = nm ? boardBarHtml('Write your reply…') + '<div class="muted" style="text-align:center;padding:2px 0 8px"><a href="#" data-act="boardnotme">Not ' + esc(nm) + '? Change name</a></div>'
+        : '<div class="bnm"><b>Before you reply — who are you?</b><div class="muted">' + (names.length ? 'Tap your name.' : 'Write your own name so Master knows who is writing.') + ' Another person on this phone will be asked again.</div>' + names.map(p => '<button class="btn" style="margin:4px 4px 0 0" data-act="boardpick" data-name="' + esc(p.name) + '">' + esc(p.name) + '</button>').join('') + '<input id="boardName" maxlength="40" placeholder="' + (names.length ? 'My name is not in the list — write it' : 'Your name') + '" autocomplete="off"><button class="btn primary" data-act="boardname">Save my name</button></div>';
     } else if (!board.sel) {
-      head = '<div class="chathead"><b>📣 ' + esc(L.BOARD_NAME) + ' board<small>' + (me.role === 'master' ? 'Each person has a private chat · HR can read and reply' : 'You can read all chats and reply as HR') + '</small></b><button class="ghost" data-act="boardclose" aria-label="Close">✕</button></div>';
-      const th = L.boardThreads(board.msgs, board.logins), alerts = L.boardGroupAlerts(board.msgs, Date.now()), seen = boardSeen();
-      list = (me.role === 'master' ? '<button class="btn primary" data-act="boardnew">＋ Message a person by name</button>' : '') + (th.length ? '' : '<div class="empty">No messages yet.</div>');
+      head = '<div class="chathead"><b>📣 ' + esc(L.BOARD_NAME) + '<small>' + (me.role === 'master' ? 'Each person has a private chat · HR can read and reply' : 'You can read all chats and reply as HR') + '</small></b><button class="ghost" data-act="boardclose" aria-label="Close">✕</button></div>';
+      const th = L.boardThreads(board.msgs, board.logins, []), pl = L.boardPeopleList(board.msgs, board.people), alerts = L.boardGroupAlerts(board.msgs, Date.now()), seen = boardSeen();
+      const preview = last => last ? (last.sender === 'HR' ? 'HR: ' : last.fromMaster ? (me.role === 'master' ? 'You: ' : 'Master: ') : '') + esc(last.kind === 'voice' ? '🎤 Voice message' : last.kind === 'photo' ? '📷 Photo' : last.body) : '';
+      list = (me.role === 'master' ? '<button class="btn primary" data-act="boardnew">＋ Add names</button>' : '') + boardFeedHtml() + '<div class="bgrp"><span>👥 People</span></div>';
+      list += pl.length ? '' : '<div class="empty">No names yet.' + (me.role === 'master' ? ' Tap “Add names”.' : '') + '</div>';
+      pl.forEach(e => {
+        const un = e.msgs.filter(m => !m.fromMaster && m.at > seen).length, last = e.msgs[e.msgs.length - 1], nd = L.boardDevices(board.msgs, e.loginId, e.person);
+        list += '<div class="bth" data-act="boardopen" data-login="" data-person="' + esc(e.person) + '"><div><b>👤 ' + esc(e.person) + (nd > 1 ? ' · 📱 ' + nd + ' phones' : '') + '</b><small>' + (e.login ? esc(e.login) + (last ? ' · ' + preview(last) : '') : (last ? preview(last) : 'Not opened the Board yet')) + '</small></div>' + (un ? '<span class="chip badc">' + un + ' new</span>' : '') + '</div>';
+      });
+      list += '<div class="bgrp"><span>🏪 Message a whole team</span></div>';
       th.forEach(g => {
-        const al = alerts.find(a => a.loginId === g.loginId);
-        list += '<div class="bgrp"><span>🏪 ' + esc(g.login) + '</span>' + (al ? '<span class="chip wait">⚠ ' + al.names.length + ' people wrote within 15 min — shared phone / group?</span>' : '') + '</div>';
-        const row = (person, ms, label) => { const last = ms[ms.length - 1], un = ms.filter(m => !m.fromMaster && m.at > seen).length; return '<div class="bth" data-act="boardopen" data-login="' + esc(g.loginId) + '" data-person="' + esc(person) + '"><div><b>' + esc(label) + '</b><small>' + (last ? (last.sender === 'HR' ? 'HR: ' : last.fromMaster ? (me.role === 'master' ? 'You: ' : 'YMR: ') : '') + esc(last.body) : 'Start the chat') + '</small></div>' + (un ? '<span class="chip badc">' + un + ' new</span>' : '') + '</div>'; };
-        list += row('', g.all, 'Everyone in ' + g.login);
-        g.people.forEach(p => { const all = boardThreadMsgs({ loginId: g.loginId, person: p.person }); list += row(p.person, all, '👤 ' + p.person + (L.boardDevices(board.msgs, g.loginId, p.person) > 1 ? ' · 📱 ' + L.boardDevices(board.msgs, g.loginId, p.person) + ' phones' : '')); });
+        const al = alerts.find(a => a.loginId === g.loginId), last = g.all[g.all.length - 1];
+        list += '<div class="bth" data-act="boardopen" data-login="' + esc(g.loginId) + '" data-person=""><div><b>Everyone in ' + esc(g.login) + '</b><small>' + (last ? preview(last) : 'Start the chat') + '</small></div>' + (al ? '<span class="chip wait">⚠ ' + al.names.length + ' people wrote within 15 min — shared phone?</span>' : '') + '</div>';
       });
     } else {
-      const sel = board.sel, ms = boardThreadMsgs(sel), lg = board.logins.find(l => l.id === sel.loginId) || (board.msgs.find(m => m.loginId === sel.loginId) ? { name: board.msgs.find(m => m.loginId === sel.loginId).login } : { name: 'Icing' });
-      head = '<div class="chathead"><button class="ghost" data-act="boardback" aria-label="Back">‹</button><b>' + (sel.person ? '👤 ' + esc(sel.person) : 'Everyone in ' + esc(lg.name)) + '<small>' + esc(lg.name) + (sel.person ? ' · private chat' : ' · message for the whole login') + '</small></b><button class="ghost" data-act="boardclose" aria-label="Close">✕</button></div>';
-      list = ms.length ? ms.map((m, i) => boardMsgHtml(m, ms[i - 1])).join('') : '<div class="empty">No messages yet.</div>';
-      if (me.role === 'master' || me.role === 'viewer') bar = '<div class="chatbar"><textarea id="boardText" rows="1" maxlength="1000" placeholder="Write as ' + esc(me.role === 'viewer' ? 'HR' : L.BOARD_NAME) + '…"></textarea><button class="send" data-act="boardsend" aria-label="Send">➤</button></div>';
+      const sel = board.sel, ms = boardThreadMsgs(sel), info = (sel.person ? boardPersonLogin(sel.person) : boardLoginInfo(sel.loginId)) || { name: 'not opened the Board yet' };
+      head = '<div class="chathead"><button class="ghost" data-act="boardback" aria-label="Back">‹</button><b>' + (sel.person ? '👤 ' + esc(sel.person) : 'Everyone in ' + esc(info.name)) + '<small>' + (sel.person ? (info.id ? 'Now on ' + esc(info.name) + ' · private chat' : 'Has ' + esc(info.name) + ' · private chat') : esc(info.name) + ' · message for the whole login') + '</small></b><button class="ghost" data-act="boardclose" aria-label="Close">✕</button></div>';
+      if (me.role === 'master' && sel.person) {
+        const pr = boardPerson(sel.person);
+        list += '<div class="muted" style="padding:6px 12px;background:#fff;border:1px solid var(--line);border-radius:10px;margin-bottom:8px">' + (pr ? 'Auto check-in (random, every 3–8 days): <b>' + (pr.auto ? 'ON' : 'OFF') + '</b>' + (pr.loginId ? '' : ' · starts after they tap their name') + ' · <a href="#" data-act="boardauto">' + (pr.auto ? 'Pause' : 'Turn on') + '</a> · <a href="#" data-act="boardrm" style="color:#C0392B">Remove name</a>' : 'This name is not in your list · <a href="#" data-act="boardadd">＋ Add to list (auto check-ins)</a>') + '</div>';
+      }
+      list += ms.length ? ms.map((m, i) => boardMsgHtml(m, ms[i - 1])).join('') : '<div class="empty">No messages yet.</div>';
+      bar = boardBarHtml('Write as ' + (me.role === 'viewer' ? 'HR' : L.BOARD_NAME) + '…');
     }
     root.innerHTML = '<div class="chatwrap">' + (head || '<div class="chathead"><b>📣 ' + esc(L.BOARD_NAME) + '</b><button class="ghost" data-act="boardclose" aria-label="Close">✕</button></div>') + '<div class="chatlist" id="boardlist">' + list + '</div>' + bar + '</div>';
     try { const t1 = $('#boardText'); if (t1 && keep) t1.value = keep; const l = $('#boardlist'); if (l) l.scrollTop = l.scrollHeight; } catch (e) { }
+    boardHydrate(); boardRecUi();
   }
-  function boardOpen() { board.open = true; boardMarkSeen(); boardDraw(); render(); }
-  function boardClose() { board.open = false; board.sel = null; boardMarkSeen(); boardDraw(); render(); }
-  async function boardPost(m) {
+  function boardOpen() { board.open = true; boardMarkSeen(); boardDraw(); render(); boardReloadPeople(); }
+  function boardClose() { boardStopRec(true); board.open = false; board.sel = null; boardMarkSeen(); boardDraw(); render(); }
+  async function boardPost(m, blob) {
     if (board.sending) return; board.sending = true;
-    try { const sent = await Sync.boardSend(m); if (!board.msgs.some(x => x.id === sent.id)) board.msgs.push(sent); boardMarkSeen(); boardDraw(); }
+    try {
+      const sent = await Sync.boardSend(m, blob); if (!board.msgs.some(x => x.id === sent.id)) board.msgs.push(sent); boardMarkSeen(); boardDraw();
+      if (me.role === 'master' && m.fromMaster && m.person) {
+        const pr = boardPerson(m.person);
+        if (pr) { const nowT = Date.now(), nxt = nowT + (3 + Math.floor(Math.random() * 6)) * 86400000; Sync.boardPersonSet(pr.id, { last_sent: new Date(nowT).toISOString(), next_due: new Date(nxt).toISOString() }).then(function () { pr.lastSent = nowT; pr.nextDue = nxt; if (board.open) boardDraw(); }).catch(function () { }); }
+      }
+    }
     catch (e) { toast('⚠ ' + msgOf(e)); }
     board.sending = false;
   }
   function boardSendText() {
     const ta = $('#boardText'); if (!ta) return; const v = String(ta.value || '').trim(); if (!v) return;
-    if (me.role === 'master' || me.role === 'viewer') { if (!board.sel) return; const asHr = me.role === 'viewer'; const lg = board.logins.find(l => l.id === board.sel.loginId) || board.msgs.find(m => m.loginId === board.sel.loginId); const nm = lg ? (lg.name || lg.login) : 'Icing', sh = lg ? lg.shop : 'YMR'; ta.value = ''; boardPost({ loginId: board.sel.loginId, login: nm, shop: sh, person: board.sel.person || '', fromMaster: true, sender: asHr ? 'HR' : L.BOARD_NAME, body: v }); }
-    else if (me.role === 'shop') { const nm = boardMyName(); if (!nm) return; ta.value = ''; boardPost({ loginId: me.id, login: me.name, shop: me.shop, person: nm, fromMaster: false, sender: nm, body: v, device: Sync.deviceId() }); }
+    const base = boardBase(); if (!base) return; ta.value = ''; boardPost(Object.assign(base, { kind: 'text', body: v }));
+  }
+  async function boardRecToggle() {
+    if (board.rec) { boardStopRec(false); return; }
+    if (!boardBase()) return;
+    try {
+      if (!navigator.mediaDevices || !window.MediaRecorder) { toast('⚠ Voice messages are not supported on this phone'); return; }
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const types = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg'], mt = types.find(t => { try { return MediaRecorder.isTypeSupported(t); } catch (e) { return false; } }) || '';
+      const mr = mt ? new MediaRecorder(stream, { mimeType: mt }) : new MediaRecorder(stream), parts = [];
+      const r = { mr: mr, stream: stream, t0: Date.now(), parts: parts, cancel: false, timer: 0 };
+      mr.ondataavailable = function (e) { if (e.data && e.data.size) parts.push(e.data); };
+      mr.onstop = function () {
+        clearInterval(r.timer); try { stream.getTracks().forEach(t => t.stop()); } catch (e) { }
+        const secs = (Date.now() - r.t0) / 1000; board.rec = null; boardRecUi();
+        if (r.cancel) return; if (secs < 1) { toast('Too short — record a little longer'); return; }
+        const base = boardBase(); if (!base) return;
+        boardPost(Object.assign(base, { kind: 'voice', secs: secs, body: '🎤 Voice message' }), new Blob(parts, { type: mr.mimeType || mt || 'audio/webm' }));
+      };
+      board.rec = r; mr.start(); r.timer = setInterval(function () { boardRecUi(); if (Date.now() - r.t0 > 120000) boardStopRec(false); }, 500); boardRecUi();
+    } catch (e) { toast('⚠ Allow the microphone for this app, then try again'); }
+  }
+  function boardStopRec(cancel) { const r = board.rec; if (!r) return; r.cancel = !!cancel; try { r.mr.stop(); } catch (e) { board.rec = null; clearInterval(r.timer); } }
+  function boardRecUi() {
+    const b = $('#boardRec'), c = $('#boardCancel'); if (!b) return;
+    if (board.rec) { const s = Math.floor((Date.now() - board.rec.t0) / 1000); b.textContent = '⏹ Send ' + Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); b.className = 'rec'; if (c) c.style.display = ''; }
+    else { b.textContent = '🎤'; b.className = ''; if (c) c.style.display = 'none'; }
+  }
+  document.addEventListener('change', function (ev) {
+    const t = ev.target; if (!t || t.id !== 'boardPhoto') return;
+    const f = t.files && t.files[0]; if (!f) return;
+    const base = boardBase(); if (!base) return;
+    photoSmall(f).then(function (b) { return boardPost(Object.assign(base, { kind: 'photo', body: '📷 Photo' }), b); }).catch(function (e) { toast('⚠ ' + msgOf(e)); });
+    try { t.value = ''; } catch (e) { }
+  });
+  async function boardAddPerson(name) {
+    let pr = boardPerson(name); if (pr) return pr;
+    try { pr = await Sync.boardPersonAdd({ name: name }); board.people.push(pr); return pr; }
+    catch (e) { toast('⚠ ' + msgOf(e)); return null; }
+  }
+  async function boardChooseName(n) {
+    n = String(n || '').trim().replace(/\s+/g, ' '); if (n.length < 2) { toast('Write your name'); return; } if (n.length > 40) { toast('Name is too long'); return; }
+    const rp = board.people.find(p => L.normName(p.name) === L.normName(n)); if (rp) n = rp.name;
+    boardSetName(n); boardDraw();
+    // the chat follows the person to this phone (if the name is in the list)
+    try { await Sync.boardClaim(n); const m = await Sync.boardLoad(); board.msgs = m; boardReloadPeople(); boardDraw(); } catch (e) { }
   }
   function canChat() { return !!me && (me.role === 'shop' || me.role === 'master'); }
   function chatSeenKey() { return 'cw_chat_seen_' + (me ? me.id : ''); }
@@ -3218,10 +3364,17 @@ const Sync = (function () {
       case 'boardback': board.sel = null; boardDraw(); break;
       case 'boardopen': board.sel = { loginId: t.dataset.login, person: t.dataset.person || '' }; boardDraw(); break;
       case 'boardsend': boardSendText(); break;
-      case 'boardname': { const el = $('#boardName'), n = el ? String(el.value || '').trim().replace(/\s+/g, ' ') : ''; if (n.length < 2) { toast('Write your name'); break; } if (n.length > 40) { toast('Name is too long'); break; } boardSetName(n); boardDraw(); break; }
+      case 'boardname': { const el = $('#boardName'); boardChooseName(el ? el.value : ''); break; }
       case 'boardnotme': boardSetName(''); boardDraw(); break;
       case 'boarddel': { if (me.role !== 'master') break; const bid = t.dataset.id; Sync.boardDelete(bid).then(function () { board.msgs = board.msgs.filter(x => x.id !== bid); boardDraw(); }).catch(function (e) { toast('⚠ ' + msgOf(e)); }); break; }
-      case 'boardnew': { if (me.role !== 'master') break; const ls = board.logins.length ? board.logins : []; openSheet('Message a person', '<form data-form="boardnew"><label>Which team</label><select name="f_login">' + ls.map(l => '<option value="' + esc(l.id) + '">' + esc(l.name) + '</option>').join('') + '</select><label>Person\'s name</label><input name="f_person" maxlength="40" placeholder="e.g. Shamsher" autocomplete="off"><div class="muted">Write the name as the person will write it. They will see this message only in their own chat.</div><label>Message</label><textarea name="f_text" rows="4" maxlength="1000" placeholder="e.g. Hello Shamsher ji, how are you? Any problem at work?"></textarea><div class="err" id="ferr"></div><button class="btn primary">Send</button></form>'); break; }
+      case 'boardphoto': { try { const fi = document.getElementById('boardPhoto'); if (fi && boardBase()) fi.click(); } catch (e) { } break; }
+      case 'boardrec': boardRecToggle(); break;
+      case 'boardcancel': boardStopRec(true); break;
+      case 'boardpick': boardChooseName(t.dataset.name); break;
+      case 'boardauto': { if (me.role !== 'master' || !board.sel) break; const pr = boardPerson(board.sel.person); if (!pr) break; Sync.boardPersonSet(pr.id, { auto: !pr.auto }).then(function () { pr.auto = !pr.auto; boardDraw(); }).catch(function (e) { toast('⚠ ' + msgOf(e)); }); break; }
+      case 'boardrm': { if (me.role !== 'master' || !board.sel) break; const pr = boardPerson(board.sel.person); if (!pr) break; Sync.boardPersonDelete(pr.id).then(function () { board.people = board.people.filter(x => x.id !== pr.id); board.sel = null; boardDraw(); toast('Name removed from the list (chat history is kept)'); }).catch(function (e) { toast('⚠ ' + msgOf(e)); }); break; }
+      case 'boardadd': { if (me.role !== 'master' || !board.sel) break; boardAddPerson(board.sel.person).then(function (pr) { if (pr) { boardDraw(); toast('Added — auto check-ins are ON'); } }); break; }
+      case 'boardnew': { if (me.role !== 'master') break; openSheet('Add names', '<form data-form="boardnew"><label>Names (one on each line)</label><textarea name="f_names" rows="8" placeholder="Amirul Islam&#10;Karim&#10;Rahman" autocomplete="off"></textarea><div class="muted">Only the name matters, not the shop. When a person taps their name on an Icing phone, their chat comes to that phone. The app asks each name “how are you?” by itself every 3–8 days.</div><div class="err" id="ferr"></div><button class="btn primary">Save names</button></form>'); break; }
       case 'chat': chatOpen(); break;
       case 'chatclose': chatClose(); break;
       case 'chatsend': chatSendText(); break;
@@ -3449,9 +3602,9 @@ const Sync = (function () {
     }
     if (kind === 'undo') { r = L.undoProduction(S, me, id, new Date()); if (!r.ok) return showErr(r.error); save(); closeSheet(); toast('Undone'); render(); return; }
     if (kind === 'boardnew') {
-      const lid = val(f, 'login'), pn = String(val(f, 'person') || '').trim().replace(/\s+/g, ' '), tx = String(val(f, 'text') || '').trim(), lg = board.logins.find(l => l.id === lid);
-      if (!lg) return showErr('Choose the team'); if (pn.length < 2) return showErr('Write the person\'s name'); if (!tx) return showErr('Write the message');
-      closeSheet(); board.sel = { loginId: lg.id, person: pn }; boardPost({ loginId: lg.id, login: lg.name, shop: lg.shop, person: pn, fromMaster: true, sender: L.BOARD_NAME, body: tx }); return;
+      const names = String(val(f, 'names') || '').split(/[\n,;]+/).map(x => x.trim().replace(/\s+/g, ' ')).filter(x => x.length >= 2 && x.length <= 60);
+      if (!names.length) return showErr('Write at least one name');
+      closeSheet(); (async function () { let n = 0; for (const nm of names) { if (!boardPerson(nm)) { const pr = await boardAddPerson(nm); if (pr) n++; } } boardDraw(); toast(n ? 'Added ' + n + ' name' + (n > 1 ? 's' : '') : 'Those names are already in the list'); })(); return;
     }
     if (kind === 'wkrecv') {
       const rows = []; for (let i = 0; i < 300; i++) { if (!f.elements['f_i' + i]) break; rows.push({ id: val(f, 'i' + i), got: val(f, 'g' + i) }); }
