@@ -3697,10 +3697,12 @@ const Sync = (function () {
   function findE(kind, id) { return S[kind].find(e => e.id === id); }
 
   // ---------- Clicks ----------
+  let bkLast = -1e9;
   document.addEventListener('click', function (ev) {
     const t = ev.target.closest ? ev.target.closest('[data-act]') : null;
     if (!t) return;
     const act = t.dataset.act, id = t.dataset.id, kind = t.dataset.kind;
+    if (act === 'btickall' || act === 'bconfirmall' || act === 'bconfirm') { const pn = (typeof performance !== 'undefined' && performance.now) ? performance.now() : null; if (pn !== null) { if (pn - bkLast < 800) return; bkLast = pn; } }
     switch (act) {
 
       case 'logout': chatStopRec(true); chat.open = false; chatDraw(true); closeSheet(); loginErr = ''; busy = 'Signing out…'; render(); Sync.signOut().then(function () { me = null; busy = ''; S = L.newState(); render(); }); break;
@@ -3715,7 +3717,13 @@ const Sync = (function () {
         break;
       }
       case 'bconfirm': { const r2 = L.confirmBakery(S, me, id); if (!r2.ok) toast(r2.error); else { save(); toast('🔒 Confirmed'); } render(); break; }
-      case 'bconfirmall': { let n3 = 0; S.sponge.concat(S.items).filter(x => x.shop === t.dataset.shop && x.forDate === t.dataset.date && srcLabel(x) === t.dataset.label && !hasCount(x) && ((x.status === 'ready' && !x.confirmed) || (x.status !== 'ready' && x.readyQty > (x.lockQty || 0)))).forEach(x => { if (L.confirmBakery(S, me, x.id).ok) n3++; }); if (n3) { save(); toast('🔒 ' + n3 + ' lines confirmed'); } render(); break; }
+      case 'bconfirmall': {
+        const ls3 = S.sponge.concat(S.items).filter(x => x.shop === t.dataset.shop && x.forDate === t.dataset.date && srcLabel(x) === t.dataset.label && !hasCount(x) && ((x.status === 'ready' && !x.confirmed) || (x.status !== 'ready' && x.readyQty > (x.lockQty || 0))));
+        if (!ls3.length) { render(); break; }
+        openSheet('Confirm for ' + t.dataset.label + '?', '<div class="fixed">🏪 ' + esc(t.dataset.label) + ' · needed ' + esc(fmtShort(t.dataset.date)) + '</div><p class="muted">These ' + ls3.length + ' ticked line' + (ls3.length > 1 ? 's' : '') + ' will be <b>locked</b> and the shop is told:</p><div class="bfeed">' + ls3.map(x => esc(x.type || x.item) + ' × ' + fmt(x.readyQty > 0 && x.status !== 'ready' ? x.readyQty : x.ordered)).join('<br>') + '</div><form data-form="bconfirmall" data-shop="' + esc(t.dataset.shop) + '" data-date="' + esc(t.dataset.date) + '" data-label="' + esc(t.dataset.label) + '"><button class="btn ok">✔ Yes, confirm ' + esc(t.dataset.label) + '</button><button type="button" class="btn sec" data-act="close">Cancel</button></form>');
+        break;
+      }
+      case 'bconfirmall_old': { let n3 = 0; S.sponge.concat(S.items).filter(x => x.shop === t.dataset.shop && x.forDate === t.dataset.date && srcLabel(x) === t.dataset.label && !hasCount(x) && ((x.status === 'ready' && !x.confirmed) || (x.status !== 'ready' && x.readyQty > (x.lockQty || 0)))).forEach(x => { if (L.confirmBakery(S, me, x.id).ok) n3++; }); if (n3) { save(); toast('🔒 ' + n3 + ' lines confirmed'); } render(); break; }
       case 'btick': { const o2 = S.sponge.concat(S.items).find(x => x.id === id); if (!o2) break; const r2 = o2.status === 'ready' ? L.unmarkBakeryReady(S, me, id) : L.markBakeryReady(S, me, id); if (!r2.ok) toast(r2.error); else save(); render(); break; }
       case 'btickall': { let n2 = 0; S.sponge.concat(S.items).filter(x => x.shop === t.dataset.shop && x.forDate === t.dataset.date && srcLabel(x) === t.dataset.label && x.status !== 'ready' && !hasCount(x) && !(x.readyQty > 0)).forEach(x => { if (L.markBakeryReady(S, me, x.id).ok) n2++; }); if (n2) { save(); toast('✓ ' + n2 + ' lines ticked'); } render(); break; }
       case 'wkmove': wkSel = L.addDays(wkBase(), Number(t.dataset.d) || 0); render(); break;
@@ -3886,6 +3894,12 @@ const Sync = (function () {
       if (!r.ok) return showErr(r.error);
       tab = 'bakery'; if (me.role !== 'sales') { tab = 'sponge'; date = r.order.forDate; }
       save(); closeSheet(); toast('Sent to Bakery 🍰'); render(); return;
+    }
+    if (kind === 'bconfirmall') {
+      let n3 = 0; const d3 = f.dataset;
+      S.sponge.concat(S.items).filter(x => x.shop === d3.shop && x.forDate === d3.date && srcLabel(x) === d3.label && !hasCount(x) && ((x.status === 'ready' && !x.confirmed) || (x.status !== 'ready' && x.readyQty > (x.lockQty || 0)))).forEach(x => { if (L.confirmBakery(S, me, x.id).ok) n3++; });
+      if (n3) { save(); toast('🔒 ' + d3.label + ': ' + n3 + ' line' + (n3 > 1 ? 's' : '') + ' confirmed'); }
+      closeSheet(); render(); return;
     }
     if (kind === 'bgive') {
       const o4 = S.sponge.concat(S.items).find(x => x.id === id), lk4 = (o4 && o4.lockQty) || 0, tv = String(val(f, 'qty')).trim();
